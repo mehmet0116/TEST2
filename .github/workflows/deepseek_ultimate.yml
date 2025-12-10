@@ -1,4 +1,4 @@
-name: DEEPSEEK ORCHESTRATOR v21.0 (GitFlow)
+name: DEEPSEEK ORCHESTRATOR v22.0 (FIXED)
 on:
   issues:
     types: [opened, edited]
@@ -18,7 +18,7 @@ permissions:
   actions: write
 
 jobs:
-  orchestrator:
+  orchestrator_fix:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     if: github.actor != 'github-actions[bot]'
@@ -30,110 +30,120 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. GÖREV ANALİZİ VE BRANCH İSMİ BELİRLEME
+      # 2. STRATEJİ VE CONFIG (Node.js ile)
       - name: 🧠 Strateji Belirle
         id: strategy
         uses: actions/github-script@v7
         env:
-          API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           USER_MSG: ${{ github.event.inputs.task || github.event.comment.body || github.event.issue.body }}
         with:
           script: |
             const userMsg = process.env.USER_MSG;
-            console.log("Kullanıcı İsteği:", userMsg);
             
-            // Branch ismi üretmek için basit bir AI çağrısı veya regex
-            // Basitlik ve hız için regex ve tarih kullanıyoruz
+            // Branch ismi üret
             const cleanName = userMsg.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30);
             const branchName = `feature/${cleanName}-${Date.now().toString().substring(8)}`;
-            
-            console.log(`Hedef Dal: ${branchName}`);
             core.setOutput('branch_name', branchName);
             
-            // Konfigürasyonu belirle (Önceki hatayı önleyen güvenli yöntem)
-            // JSON ile uğraşmıyoruz, doğrudan Node.js içinde environment belirliyoruz.
+            // Ortam Tespiti
             const fs = require('fs');
-            let envConfig = { type: 'general', setup_cmd: 'echo "Setup yok"', build_cmd: 'echo "Build yok"' };
+            let type = 'general';
+            let build = 'echo "Build yok"';
+            let setup = 'echo "Setup yok"';
             
-            if (fs.existsSync('build.gradle')) envConfig = { type: 'android', setup_cmd: 'chmod +x gradlew', build_cmd: './gradlew assembleDebug' };
-            else if (fs.existsSync('package.json')) envConfig = { type: 'node', setup_cmd: 'npm install', build_cmd: 'npm run build --if-present' };
-            else if (fs.existsSync('requirements.txt')) envConfig = { type: 'python', setup_cmd: 'pip install -r requirements.txt', build_cmd: 'python -m py_compile *.py' };
+            if (fs.existsSync('build.gradle') || fs.existsSync('app/build.gradle')) {
+               type = 'android';
+               setup = 'chmod +x gradlew || true';
+               build = './gradlew assembleDebug';
+            } else if (fs.existsSync('package.json')) {
+               type = 'node';
+               setup = 'npm install';
+               build = 'npm run build --if-present';
+            } else if (fs.existsSync('requirements.txt')) {
+               type = 'python';
+               setup = 'pip install -r requirements.txt';
+               build = 'python -m py_compile *.py';
+            }
             
-            core.setOutput('env_type', envConfig.type);
-            core.setOutput('setup_cmd', envConfig.setup_cmd);
-            core.setOutput('build_cmd', envConfig.build_cmd);
+            core.setOutput('env_type', type);
+            core.setOutput('setup_cmd', setup);
+            core.setOutput('build_cmd', build);
 
-      # 3. YENİ DAL OLUŞTUR VE GEÇİŞ YAP
-      - name: 🌿 Yeni Dal Oluştur
+      # 3. YENİ DAL OLUŞTUR
+      - name: 🌿 Yeni Dal (Branch) Aç
         run: |
           git config --global user.name "DeepSeek Orchestrator"
           git config --global user.email "bot@deepseek.com"
-          BRANCH_NAME="${{ steps.strategy.outputs.branch_name }}"
-          git checkout -b $BRANCH_NAME
-          echo "CURRENT_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
-          echo "✅ Çalışma alanı: $BRANCH_NAME dalına taşındı."
+          BRANCH="${{ steps.strategy.outputs.branch_name }}"
+          git checkout -b $BRANCH
+          echo "CURRENT_BRANCH=$BRANCH" >> $GITHUB_ENV
 
-      # 4. ORTAM KURULUMU (Dinamik)
-      - name: 🛠️ Ortam Hazırla
-        uses: actions/setup-java@v4
+      # 4. ORTAM KURULUMU
+      - name: 🛠️ Java Kurulumu (Android)
         if: steps.strategy.outputs.env_type == 'android'
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-      
-      - name: 🟢 Node Hazırla
-        uses: actions/setup-node@v4
+
+      - name: 🟢 Node Kurulumu
         if: steps.strategy.outputs.env_type == 'node'
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: 🐍 Python Hazırla
-        uses: actions/setup-python@v5
+      - name: 🐍 Python Kurulumu
         if: steps.strategy.outputs.env_type == 'python'
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 5. DEEPSEEK BEYNİ (KODLAMA)
-      - name: ⚡ DeepSeek Reasoner (Kodlama)
+      # 5. KODLAMA MOTORU (Düzeltilmiş)
+      - name: ⚡ DeepSeek Reasoner
         id: coder
         uses: actions/github-script@v7
+        timeout-minutes: 30 # <--- DÜZELTİLDİ: Yeri burası
         env:
           API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           USER_MSG: ${{ github.event.inputs.task || github.event.comment.body || github.event.issue.body }}
           ENV_TYPE: ${{ steps.strategy.outputs.env_type }}
         with:
-          timeout-minutes: 30
           script: |
             const fs = require('fs');
             const path = require('path');
             
-            // Mevcut dosyaları oku (Context)
-            let context = "";
+            // HATA DÜZELTİLDİ: Değişken adı 'repoContext' oldu ('context' yasaklı)
+            let repoContext = "";
+            
             function scan(dir) {
                 if (!fs.existsSync(dir)) return;
                 const files = fs.readdirSync(dir);
                 for (const f of files) {
-                    if (['.git', 'node_modules', 'build'].includes(f)) continue;
+                    if (['.git', 'node_modules', 'build', '.gradle'].includes(f)) continue;
                     const fp = path.join(dir, f);
                     if (fs.statSync(fp).isDirectory()) scan(fp);
                     else {
-                        if (fp.match(/\.(js|py|java|kt|xml|gradle|json|md|html|css)$/)) {
-                            if (fs.statSync(fp).size < 10000) context += `FILE: ${fp}\n${fs.readFileSync(fp, 'utf8')}\n---\n`;
+                        if (fp.match(/\.(js|py|java|kt|xml|gradle|json|md|html|css|txt)$/)) {
+                            if (fs.statSync(fp).size < 15000) {
+                                repoContext += `FILE: ${fp}\n${fs.readFileSync(fp, 'utf8')}\n---\n`;
+                            }
                         }
                     }
                 }
             }
             scan('.');
 
-            const systemPrompt = `
+            const prompt = `
             Sen DeepSeek Orchestrator. 
-            Şu an '${process.env.ENV_TYPE}' projesi üzerinde, '${process.env.USER_MSG}' görevini yapıyorsun.
+            Proje Tipi: ${process.env.ENV_TYPE}
+            
+            GÖREV:
+            Kullanıcı isteğini (${process.env.USER_MSG}) yerine getir.
             
             KURALLAR:
-            1. Tam ve profesyonel kod yaz.
-            2. Çıktı formatı: ---FILE:dosya/yolu--- içerik ---END---
-            3. Asla markdown bloğu (backtick) içine alma, düz metin ver.
-            4. Düşünce zincirini (Reasoning) kullan.
+            1. Tam çalışan kod yaz.
+            2. FORMAT: ---FILE:dosya/yolu--- içerik ---END---
+            3. Düşünce zincirini kullan.
             `;
 
             try {
@@ -142,19 +152,19 @@ jobs:
                     headers: { "Authorization": `Bearer ${process.env.API_KEY}`, "Content-Type": "application/json" },
                     body: JSON.stringify({
                         model: "deepseek-reasoner",
-                        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: context }],
+                        messages: [{ role: "system", content: prompt }, { role: "user", content: repoContext }],
                         stream: false,
                         max_tokens: 8000
                     })
                 });
                 
+                if (!response.ok) throw new Error(await response.text());
                 const data = await response.json();
-                if (!data.choices) throw new Error(JSON.stringify(data));
                 
                 const aiReply = data.choices[0].message.content;
-                const thinking = data.choices[0].message.reasoning_content || "Thinking verisi yok.";
+                const thinking = data.choices[0].message.reasoning_content || "";
                 
-                // Dosyaları Yaz
+                // Dosya Yazma
                 const regex = /---FILE:\s*(.*?)---\n([\s\S]*?)---END---/g;
                 let match;
                 let files = [];
@@ -165,97 +175,73 @@ jobs:
                     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
                     fs.writeFileSync(fpath, content);
                     files.push(fpath);
-                    console.log("Yazıldı:", fpath);
                 }
                 
                 core.setOutput('files', files.join(', '));
-                core.setOutput('thinking', Buffer.from(thinking).toString('base64'));
+                // Base64 encode (Güvenlik için)
                 core.setOutput('reply', Buffer.from(aiReply).toString('base64'));
+                core.setOutput('thinking', Buffer.from(thinking).toString('base64'));
 
             } catch (e) {
                 core.setFailed(e.message);
             }
 
-      # 6. DERLEME VE TEST (Yeni Dalda)
-      - name: 🏗️ Derle ve Test Et
-        id: build
+      # 6. DERLEME (Build)
+      - name: 🏗️ Derle
         run: |
-          echo "🔨 Derleme Başlıyor..."
-          SETUP_CMD="${{ steps.strategy.outputs.setup_cmd }}"
-          BUILD_CMD="${{ steps.strategy.outputs.build_cmd }}"
+          SETUP="${{ steps.strategy.outputs.setup_cmd }}"
+          BUILD="${{ steps.strategy.outputs.build_cmd }}"
           
-          eval "$SETUP_CMD"
-          if eval "$BUILD_CMD"; then
-            echo "✅ Build Başarılı"
+          echo "Setup: $SETUP"
+          eval "$SETUP"
+          
+          echo "Build: $BUILD"
+          if eval "$BUILD"; then
             echo "BUILD_STATUS=SUCCESS" >> $GITHUB_ENV
           else
-            echo "❌ Build Başarısız (Ama kodlar kaydedilecek)"
             echo "BUILD_STATUS=FAILURE" >> $GITHUB_ENV
           fi
         continue-on-error: true
 
-      # 7. COMMIT VE PUSH (Yeni Dala)
-      - name: 💾 Commit ve Push
+      # 7. COMMIT & PUSH
+      - name: 💾 Kaydet ve Pushla
         run: |
           git add .
-          git commit -m "🤖 DeepSeek: ${{ github.event.inputs.task || 'Otomatik Geliştirme' }}"
+          git commit -m "🤖 DeepSeek: ${{ github.event.inputs.task || 'Geliştirme' }}"
           git push origin ${{ env.CURRENT_BRANCH }}
 
-      # 8. PULL REQUEST OLUŞTURMA (Otomatik)
-      - name: 🔀 Pull Request Aç
+      # 8. PULL REQUEST
+      - name: 🔀 PR Aç
         uses: actions/github-script@v7
         with:
           script: |
-            const { repo, owner } = context.repo;
             const branch = process.env.CURRENT_BRANCH;
-            const title = `🤖 DeepSeek AI: ${process.env.USER_MSG || 'Otomatik PR'}`;
-            const body = `Bu PR, DeepSeek Orchestrator tarafından otomatik oluşturulmuştur.\n\n**Dal:** \`${branch}\`\n**Durum:** Hazır.`;
-            
             try {
               await github.rest.pulls.create({
-                owner,
-                repo,
-                title,
-                body,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🤖 DeepSeek PR: ${branch}`,
+                body: "DeepSeek tarafından otomatik oluşturulan kodlar.",
                 head: branch,
                 base: 'main'
               });
-              console.log("✅ PR Oluşturuldu!");
-            } catch (e) {
-              console.log("ℹ️ PR zaten var veya hata oluştu:", e.message);
-            }
+            } catch(e) { console.log("PR zaten var veya hata:", e.message); }
 
-      # 9. ARTIFACTS
-      - name: 📤 Sonuçları Yükle
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifact
-          path: |
-            **/*.apk
-            dist/
-            build/
-
-      # 10. RAPOR
+      # 9. RAPOR
       - name: 📊 Rapor
         uses: actions/github-script@v7
         env:
-          THINKING_B64: ${{ steps.coder.outputs.thinking }}
+          THINKING: ${{ steps.coder.outputs.thinking }}
           FILES: ${{ steps.coder.outputs.files }}
-          BRANCH: ${{ env.CURRENT_BRANCH }}
+          STATUS: ${{ env.BUILD_STATUS }}
         with:
           script: |
-            const thinking = Buffer.from(process.env.THINKING_B64, 'base64').toString('utf-8');
-            const files = process.env.FILES;
-            const branch = process.env.BRANCH;
+            const thinking = Buffer.from(process.env.THINKING, 'base64').toString('utf-8');
             
-            let msg = `### 🌳 DeepSeek Orchestrator Raporu\n\n`;
-            msg += `**✅ İşlem Tamamlandı!**\n`;
-            msg += `Kodlar **\`${branch}\`** isimli yeni bir dala (branch) yazıldı.\n`;
-            msg += `Lütfen **"Pull Requests"** sekmesini kontrol edin.\n\n`;
-            
-            msg += `<details><summary>🧠 Düşünce Süreci</summary>\n\`\`\`\n${thinking.substring(0, 2000)}\n\`\`\`\n</details>\n\n`;
-            msg += `**Değişen Dosyalar:** ${files}`;
+            let msg = `### 🚀 İşlem Tamamlandı\n`;
+            msg += `**Durum:** ${process.env.STATUS}\n`;
+            msg += `**Dosyalar:** ${process.env.FILES}\n\n`;
+            msg += `<details><summary>Düşünce Süreci</summary>\n\n${thinking.substring(0,3000)}\n</details>`;
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
