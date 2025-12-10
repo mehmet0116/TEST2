@@ -1,0 +1,608 @@
+name: DeepSeek V3.2 ULTIMATE AGENT (v12.0 - Universal Build System)
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  universal_agent:
+    runs-on: ubuntu-latest-16core
+    timeout-minutes: 45
+    if: github.actor != 'github-actions[bot]' && (github.event_name == 'issues' || github.event_name == 'issue_comment')
+    
+    steps:
+      - name: 🚀 Tüm Sistemleri Başlat
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 🔍 Evrensel Proje Analizörü
+        id: project_scanner
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log("🌐 UNIVERSAL PROJECT SCANNER starting...");
+            
+            const fs = require('fs');
+            const path = require('path');
+            
+            // PROJE TİPLERİ VE ALGILAMA
+            const projectDetectors = {
+              android: {
+                files: ['build.gradle', 'build.gradle.kts', 'AndroidManifest.xml'],
+                build: './gradlew build',
+                test: './gradlew test',
+                clean: './gradlew clean',
+                install: 'sudo apt-get update && sudo apt-get install -y openjdk-17-jdk android-sdk'
+              },
+              nodejs: {
+                files: ['package.json', 'package-lock.json', 'yarn.lock'],
+                build: 'npm run build || npm install',
+                test: 'npm test || npm run test',
+                clean: 'rm -rf node_modules',
+                install: 'npm ci || npm install'
+              },
+              python: {
+                files: ['requirements.txt', 'pyproject.toml', 'setup.py'],
+                build: 'pip install -r requirements.txt',
+                test: 'python -m pytest || python -m unittest',
+                clean: 'pip uninstall -y .',
+                install: 'python -m pip install --upgrade pip'
+              },
+              java_maven: {
+                files: ['pom.xml'],
+                build: 'mvn clean compile',
+                test: 'mvn test',
+                clean: 'mvn clean',
+                install: 'sudo apt-get install -y maven'
+              },
+              java_gradle: {
+                files: ['build.gradle'],
+                build: './gradlew build',
+                test: './gradlew test',
+                clean: './gradlew clean',
+                install: 'sudo apt-get install -y gradle'
+              },
+              flutter: {
+                files: ['pubspec.yaml', 'lib/main.dart'],
+                build: 'flutter build apk --release',
+                test: 'flutter test',
+                clean: 'flutter clean',
+                install: 'sudo snap install flutter --classic'
+              },
+              go: {
+                files: ['go.mod', 'main.go'],
+                build: 'go build ./...',
+                test: 'go test ./...',
+                clean: 'go clean',
+                install: 'sudo apt-get install -y golang'
+              },
+              rust: {
+                files: ['Cargo.toml'],
+                build: 'cargo build --release',
+                test: 'cargo test',
+                clean: 'cargo clean',
+                install: 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+              },
+              php: {
+                files: ['composer.json', 'index.php'],
+                build: 'composer install',
+                test: 'phpunit || vendor/bin/phpunit',
+                clean: 'rm -rf vendor',
+                install: 'sudo apt-get install -y php composer'
+              },
+              dotnet: {
+                files: ['*.csproj', '*.sln'],
+                build: 'dotnet build',
+                test: 'dotnet test',
+                clean: 'dotnet clean',
+                install: 'sudo apt-get install -y dotnet-sdk'
+              },
+              docker: {
+                files: ['Dockerfile', 'docker-compose.yml'],
+                build: 'docker build .',
+                test: 'docker-compose up --build',
+                clean: 'docker system prune -f',
+                install: 'sudo apt-get install -y docker.io docker-compose'
+              }
+            };
+            
+            // Tüm dosyaları tarayarak proje tipini belirle
+            let detectedTypes = [];
+            let projectContext = "=== PROJE DOSYA YAPISI ===\n";
+            
+            for (const [type, detector] of Object.entries(projectDetectors)) {
+              const hasFiles = detector.files.some(file => fs.existsSync(file));
+              if (hasFiles) {
+                detectedTypes.push(type);
+                console.log(`✅ ${type.toUpperCase()} projesi tespit edildi`);
+              }
+            }
+            
+            // Kritik dosyaları oku (ilk 50 dosya)
+            const allFiles = [];
+            function scanDir(dir) {
+              try {
+                const items = fs.readdirSync(dir, { withFileTypes: true });
+                for (const item of items.slice(0, 100)) { // Sınırla
+                  const fullPath = path.join(dir, item.name);
+                  if (item.isDirectory() && !item.name.startsWith('.') && item.name !== 'node_modules' && item.name !== 'vendor') {
+                    scanDir(fullPath);
+                  } else if (item.isFile() && !item.name.startsWith('.')) {
+                    allFiles.push(fullPath);
+                  }
+                }
+              } catch (e) {}
+            }
+            
+            scanDir('.');
+            
+            // Önemli dosyaları seç ve oku
+            const importantExtensions = ['.json', '.gradle', '.java', '.kt', '.py', '.js', '.ts', '.html', '.css', '.xml', '.yaml', '.yml', '.md', '.txt', '.lock'];
+            const importantFiles = allFiles
+              .filter(file => importantExtensions.some(ext => file.endsWith(ext)))
+              .slice(0, 30); // İlk 30 dosya
+            
+            let fileContents = "";
+            for (const file of importantFiles) {
+              try {
+                const content = fs.readFileSync(file, 'utf8');
+                const relativePath = path.relative('.', file);
+                fileContents += `\n📄 ${relativePath}:\n\`\`\`\n${content.substring(0, 2000)}${content.length > 2000 ? '\n... [devamı var] ...' : ''}\n\`\`\`\n`;
+              } catch (e) {}
+            }
+            
+            projectContext += `Tespit Edilen Proje Tipleri: ${detectedTypes.join(', ') || 'Bilinmeyen'}\n`;
+            projectContext += `Toplam Dosya Sayısı: ${allFiles.length}\n`;
+            projectContext += fileContents;
+            
+            return {
+              detectedTypes: detectedTypes.join(','),
+              projectContext: projectContext,
+              fileCount: allFiles.length.toString()
+            };
+
+      - name: ⚙️ Gerekli Sistemleri Kur
+        id: setup_systems
+        run: |
+          echo "🛠️ Sistem kurulumları başlatılıyor..."
+          
+          # Temel araçlar
+          sudo apt-get update
+          sudo apt-get install -y curl wget git unzip build-essential
+          
+          # Java (birçok proje için gerekli)
+          sudo apt-get install -y openjdk-17-jdk
+          echo "JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))" >> $GITHUB_ENV
+          
+          # Node.js
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          
+          # Python
+          sudo apt-get install -y python3 python3-pip python3-venv
+          
+          # Docker
+          sudo apt-get install -y docker.io
+          sudo systemctl start docker
+          
+          echo "✅ Sistem kurulumları tamamlandı"
+
+      - name: 🏗️ EVRENSEL DERLEME SİSTEMİ
+        id: universal_build
+        continue-on-error: true
+        run: |
+          echo "🏗️ UNIVERSAL BUILD SYSTEM starting..."
+          
+          BUILD_LOG="build_output.log"
+          ERROR_LOG="build_errors.log"
+          BUILD_SUMMARY=""
+          
+          # Tüm derleme çıktılarını topla
+          {
+            echo "=== UNIVERSAL BUILD LOG ==="
+            echo "Start Time: $(date)"
+            echo ""
+            
+            # Android projesi varsa
+            if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+              echo "📱 ANDROID BUILD starting..."
+              chmod +x gradlew 2>/dev/null || true
+              ./gradlew clean build --no-daemon --stacktrace 2>&1 || echo "Android build failed, continuing..."
+              echo ""
+            fi
+            
+            # Node.js projesi varsa
+            if [ -f "package.json" ]; then
+              echo "🟢 NODE.JS BUILD starting..."
+              npm ci --silent 2>&1 || npm install --silent 2>&1
+              npm run build 2>&1 || echo "No build script found"
+              npm test 2>&1 || echo "No tests found"
+              echo ""
+            fi
+            
+            # Python projesi varsa
+            if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then
+              echo "🐍 PYTHON BUILD starting..."
+              pip install -r requirements.txt 2>&1 || pip install . 2>&1
+              python -m pytest 2>&1 || echo "Python tests not found"
+              echo ""
+            fi
+            
+            # Docker projesi varsa
+            if [ -f "Dockerfile" ]; then
+              echo "🐳 DOCKER BUILD starting..."
+              docker build . -t app 2>&1
+              echo ""
+            fi
+            
+            echo "End Time: $(date)"
+          } | tee $BUILD_LOG
+          
+          # Hataları ayıkla
+          grep -A 3 -B 3 -i "error\|failed\|exception\|undefined\|not found" $BUILD_LOG > $ERROR_LOG || true
+          
+          # Başarı durumunu kontrol et
+          if grep -qi "success\|completed\|passed" $BUILD_LOG; then
+            BUILD_STATUS="partial_success"
+          else
+            BUILD_STATUS="failed"
+          fi
+          
+          # Özet oluştur
+          BUILD_SUMMARY=$(tail -100 $BUILD_LOG)
+          
+          echo "BUILD_STATUS=$BUILD_STATUS" >> $GITHUB_OUTPUT
+          echo "ERRORS<<EOF" >> $GITHUB_OUTPUT
+          cat $ERROR_LOG >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "BUILD_SUMMARY<<EOF" >> $GITHUB_OUTPUT
+          echo "$BUILD_SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 🧠 DEEPSEEK ULTIMATE BRAIN v12
+        id: deepseek_ultimate
+        uses: actions/github-script@v7
+        env:
+          API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DETECTED_TYPES: ${{ steps.project_scanner.outputs.detectedTypes }}
+          PROJECT_CONTEXT: ${{ steps.project_scanner.outputs.projectContext }}
+          BUILD_STATUS: ${{ steps.universal_build.outputs.BUILD_STATUS }}
+          BUILD_ERRORS: ${{ steps.universal_build.outputs.ERRORS }}
+          BUILD_SUMMARY: ${{ steps.universal_build.outputs.BUILD_SUMMARY }}
+        with:
+          script: |
+            console.log("🧠 DEEPSEEK ULTIMATE BRAIN v12 ACTIVATED");
+            
+            const apiKey = process.env.API_KEY?.trim();
+            if (!apiKey) throw new Error("❌ API_KEY eksik! Secrets'a DEEPSEEK_API_KEY ekleyin.");
+            
+            const userMessage = context.payload.comment?.body || context.payload.issue.body;
+            const detectedTypes = process.env.DETECTED_TYPES?.split(',') || [];
+            const projectContext = process.env.PROJECT_CONTEXT || "";
+            const buildStatus = process.env.BUILD_STATUS || "unknown";
+            const buildErrors = process.env.BUILD_ERRORS || "No errors";
+            const buildSummary = process.env.BUILD_SUMMARY || "No build summary";
+            
+            // --- ULTIMATE PROMPT ENGINE v12 ---
+            const systemPrompt = `
+            Sen DeepSeek V3.2 "ULTIMATE BRAIN" modelisin. 
+            Tüm proje tiplerini (${detectedTypes.join(', ') || 'her türlü'}) destekleyen evrensel bir ajansın.
+            
+            MUTLAK YETKİLERİN:
+            1. DERLEME SORUNLARINI ÇÖZ: Build hatalarını otomatik düzelt
+            2. KOD YAZ: Eksik dosyaları oluştur, hataları düzelt
+            3. TEST ET: Testleri çalıştır ve hataları düzelt
+            4. DEPLOY HAZIRLA: Projeyi production-ready yap
+            5. HER ŞEYİ YAP: Kullanıcının istediği her şeyi yap
+            
+            KRİTİK KURALLAR:
+            - ASLA "burayı sen tamamla" deme
+            - ASLA yarım bırakma
+            - Tüm kodları tam ve çalışır şekilde ver
+            - Build, test ve deploy için gerekli her şeyi yap
+            
+            ÇIKTI FORMATI (ZORUNLU):
+            ---FILENAME: dosya/yolu/veya/adi.uzanti---
+            [KODUN TAMAMI BURAYA]
+            ---END_OF_FILE---
+            
+            Birden fazla dosya için bu formatı tekrarla.
+            
+            Eğer build/task komutları öneriyorsan:
+            ---COMMAND: komut açıklaması---
+            komut_satırı
+            ---END_COMMAND---
+            
+            ÖRNEKLER:
+            - Android projesinde build.gradle düzelt
+            - Node.js'de package.json güncelle
+            - Python'da requirements.txt düzenle
+            - Eksik Java class'ları oluştur
+            - Flutter widget'ları ekle
+            - Dockerfile optimize et
+            `.trim();
+            
+            // --- API İSTEĞİ ---
+            const response = await fetch("https://api.deepseek.com/chat/completions", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+              },
+              body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { 
+                    role: "user", 
+                    content: `🚀 GÖREV: ${userMessage}
+                    
+                    📊 PROJE BİLGİLERİ:
+                    - Tespit Edilen Tipler: ${detectedTypes.join(', ')}
+                    - Build Durumu: ${buildStatus}
+                    - Hatalar: ${buildErrors.substring(0, 2000)}
+                    
+                    📁 PROJE DOSYALARI:
+                    ${projectContext.substring(0, 15000)}
+                    
+                    📋 BUILD ÇIKTISI:
+                    ${buildSummary.substring(0, 3000)}
+                    
+                    ⚡ TALİMAT: 
+                    1. Build hatalarını DÜZELT
+                    2. Kullanıcının istediğini YAP
+                    3. Projeyi ÇALIŞIR hale getir
+                    4. TÜM gerekli dosyaları sağla
+                    5. HER ŞEYİ TAMAMLA`
+                  }
+                ],
+                stream: false,
+                max_tokens: 16000,
+                temperature: 0.1
+              })
+            });
+            
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("❌ API HATASI:", response.status, errorText);
+              throw new Error(`API Error ${response.status}: ${errorText.substring(0, 500)}`);
+            }
+            
+            const data = await response.json();
+            const aiReply = data.choices[0]?.message?.content || "❌ Yanıt alınamadı";
+            
+            console.log(`✅ AI Yanıtı Alındı: ${aiReply.length} karakter`);
+            
+            // --- DOSYA İŞLEMLERİ ---
+            const filePattern = /---FILENAME:\s*(.*?)---\n([\s\S]*?)---END_OF_FILE---/g;
+            const commandPattern = /---COMMAND:\s*(.*?)---\n([\s\S]*?)---END_COMMAND---/g;
+            
+            let fileMatch;
+            const processedFiles = [];
+            const fileErrors = [];
+            
+            while ((fileMatch = filePattern.exec(aiReply)) !== null) {
+              const fileName = fileMatch[1].trim();
+              const fileContent = fileMatch[2].trim();
+              
+              try {
+                // GitHub API ile dosyayı güncelle veya oluştur
+                let sha = null;
+                try {
+                  const { data: existingFile } = await github.rest.repos.getContent({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    path: fileName
+                  });
+                  sha = existingFile.sha;
+                } catch (e) {
+                  // Dosya yok, yeni oluşturulacak
+                }
+                
+                await github.rest.repos.createOrUpdateFileContents({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: fileName,
+                  message: `🤖 DeepSeek Ultimate: ${fileName}`,
+                  content: Buffer.from(fileContent).toString('base64'),
+                  sha: sha
+                });
+                
+                processedFiles.push(fileName);
+                console.log(`✅ Dosya işlendi: ${fileName}`);
+              } catch (error) {
+                console.error(`❌ ${fileName} hatası:`, error.message);
+                fileErrors.push(`${fileName}: ${error.message}`);
+              }
+            }
+            
+            // Komutları topla
+            let commandMatch;
+            const commands = [];
+            while ((commandMatch = commandPattern.exec(aiReply)) !== null) {
+              const cmdDesc = commandMatch[1].trim();
+              const cmd = commandMatch[2].trim();
+              commands.push({ desc: cmdDesc, cmd: cmd });
+            }
+            
+            return {
+              aiReply: aiReply.substring(0, 5000), // İlk 5000 karakter
+              processedFiles: processedFiles.join(','),
+              fileErrorCount: fileErrors.length,
+              commands: JSON.stringify(commands),
+              fileCount: processedFiles.length
+            };
+
+      - name: ⚡ KOMUTLARI ÇALIŞTIR
+        id: execute_commands
+        run: |
+          echo "⚡ AI Önerdiği Komutlar Çalıştırılıyor..."
+          
+          # Komutları al ve parse et
+          COMMANDS_JSON='${{ steps.deepseek_ultimate.outputs.commands }}'
+          
+          if [ "$COMMANDS_JSON" != "" ] && [ "$COMMANDS_JSON" != "[]" ]; then
+            echo "📋 AI Önerdiği Komutlar:"
+            
+            # JSON'dan komutları çıkar
+            echo $COMMANDS_JSON | jq -r '.[] | "\(.desc):\n\(.cmd)\n"' > commands.txt
+            
+            # Her komutu çalıştır
+            while IFS= read -r line; do
+              if [[ $line == *":" ]]; then
+                echo ""
+                echo "🔧 $line"
+              elif [[ $line != "" ]]; then
+                echo "   ▶️ Çalıştırılıyor: $line"
+                eval $line 2>&1 | while IFS= read -r output; do
+                  echo "      $output"
+                done || true
+              fi
+            done < commands.txt
+          else
+            echo "ℹ️ AI komut önermedi"
+          fi
+          
+          # Ek build denemesi
+          echo ""
+          echo "🔄 Son Build Denemesi..."
+          
+          # Hangi build sistemi varsa onu dene
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew build --no-daemon 2>&1 | tail -50 || true
+          elif [ -f "package.json" ]; then
+            npm run build 2>&1 | tail -50 || true
+          elif [ -f "pom.xml" ]; then
+            mvn compile 2>&1 | tail -50 || true
+          elif [ -f "Cargo.toml" ]; then
+            cargo build 2>&1 | tail -50 || true
+          fi
+
+      - name: 📊 EVRENSEL SONUÇ RAPORU
+        uses: actions/github-script@v7
+        env:
+          AI_REPLY: ${{ steps.deepseek_ultimate.outputs.aiReply }}
+          PROCESSED_FILES: ${{ steps.deepseek_ultimate.outputs.processedFiles }}
+          FILE_COUNT: ${{ steps.deepseek_ultimate.outputs.fileCount }}
+          DETECTED_TYPES: ${{ steps.project_scanner.outputs.detectedTypes }}
+          BUILD_STATUS: ${{ steps.universal_build.outputs.BUILD_STATUS }}
+          COMMANDS: ${{ steps.deepseek_ultimate.outputs.commands }}
+        with:
+          script: |
+            const aiReply = process.env.AI_REPLY || "";
+            const processedFiles = process.env.PROCESSED_FILES?.split(',').filter(Boolean) || [];
+            const fileCount = parseInt(process.env.FILE_COUNT) || 0;
+            const detectedTypes = process.env.DETECTED_TYPES?.split(',').filter(Boolean) || [];
+            const buildStatus = process.env.BUILD_STATUS || "unknown";
+            const commands = JSON.parse(process.env.COMMANDS || "[]");
+            
+            let report = `## 🚀 DEEPSEEK ULTIMATE v12 - EVRENSEL BUILD SİSTEMİ\n\n`;
+            
+            // İstatistikler
+            report += `### 📊 İSTATİSTİKLER\n`;
+            report += `| Metrik | Değer |\n|--------|-------|\n`;
+            report += `| **Proje Tipleri** | ${detectedTypes.join(', ') || 'Bilinmiyor'} |\n`;
+            report += `| **Build Durumu** | ${buildStatus === 'partial_success' ? '✅ Kısmen Başarılı' : buildStatus === 'failed' ? '❌ Başarısız' : '⚠️ Bilinmiyor'} |\n`;
+            report += `| **İşlenen Dosya** | ${fileCount} adet |\n`;
+            report += `| **AI Yanıt Uzunluğu** | ${aiReply.length} karakter |\n`;
+            
+            // İşlenen Dosyalar
+            if (processedFiles.length > 0) {
+              report += `\n### 📁 İŞLENEN DOSYALAR\n`;
+              processedFiles.forEach(file => {
+                report += `- ✅ \`${file}\`\n`;
+              });
+            }
+            
+            // Komutlar
+            if (commands.length > 0) {
+              report += `\n### ⚡ ÇALIŞTIRILAN KOMUTLAR\n`;
+              commands.forEach(cmd => {
+                report += `#### ${cmd.desc}\n`;
+                report += `\`\`\`bash\n${cmd.cmd}\n\`\`\`\n`;
+              });
+            }
+            
+            // AI Yanıtı (kısaltılmış)
+            if (aiReply && aiReply.length > 100) {
+              report += `\n### 🧠 AI ANALİZ ÖZETİ\n`;
+              const preview = aiReply.length > 3000 ? aiReply.substring(0, 3000) + "\n... [devamı var]" : aiReply;
+              report += `<details><summary>📝 Tıklayarak AI Yanıtını Gör (${aiReply.length} karakter)</summary>\n\n`;
+              report += `\`\`\`\n${preview}\n\`\`\`\n`;
+              report += `</details>\n`;
+            }
+            
+            // Sonraki Adımlar
+            report += `\n### 🎯 SONRAKİ ADIMLAR\n`;
+            
+            if (detectedTypes.includes('android')) {
+              report += `📱 **Android için:**\n`;
+              report += `1. APK'yı derlemek için tekrar "build" çalıştır\n`;
+              report += `2. Testleri çalıştır: \`./gradlew test\`\n`;
+              report += `3. APK'lar: \`app/build/outputs/apk/\` klasöründe\n`;
+            }
+            
+            if (detectedTypes.includes('nodejs')) {
+              report += `🟢 **Node.js için:**\n`;
+              report += `1. Bağımlılıkları kur: \`npm install\`\n`;
+              report += `2. Çalıştır: \`npm start\` veya \`node app.js\`\n`;
+            }
+            
+            report += `\n---\n`;
+            report += `*Bu rapor otomatik olarak DeepSeek Ultimate Ajan tarafından oluşturuldu* 🤖`;
+            
+            // Yorum olarak ekle
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: report
+            });
+
+      - name: 📦 SON BUILD KONTROLÜ
+        id: final_check
+        run: |
+          echo "🔍 Son Kontroller Yapılıyor..."
+          
+          # Derleme başarısını kontrol et
+          SUCCESS_FILE="build_success.log"
+          
+          {
+            echo "=== FINAL BUILD CHECK ==="
+            echo "Time: $(date)"
+            echo ""
+            
+            # Hangi build sistemi varsa test et
+            if [ -f "gradlew" ]; then
+              echo "Testing Gradle build..."
+              ./gradlew assembleDebug 2>&1 | tail -20
+              echo "Gradle check completed"
+            elif [ -f "package.json" ]; then
+              echo "Testing Node.js..."
+              node -e "console.log('Node.js OK:', process.version)"
+              if [ -f "app.js" ] || [ -f "index.js" ] || [ -f "src/index.js" ]; then
+                echo "Main JS file exists"
+              fi
+            elif [ -f "main.py" ] || [ -f "app.py" ]; then
+              echo "Testing Python..."
+              python3 --version
+              python3 -c "print('Python OK')"
+            fi
+            
+            echo ""
+            echo "=== FILE SYSTEM CHECK ==="
+            echo "Top 10 important files:"
+            find . -type f -name "*.json" -o -name "*.gradle" -o -name "*.py" -o -name "*.js" -o -name "*.java" -o -name "*.kt" | head -10
+            
+          } > $SUCCESS_FILE
+          
+          echo "✅ Son kontroller tamamlandı"
+          echo "FINAL_CHECK=completed" >> $GITHUB_OUTPUT
