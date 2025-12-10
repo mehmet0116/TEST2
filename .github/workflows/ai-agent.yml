@@ -28,7 +28,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          fetch-tags: false
 
       # 2. HER ŞEYİ YAPAN AI MOTORU
       - name: 🧠 UNIVERSAL AI MOTORU
@@ -53,87 +52,56 @@ jobs:
               return;
             }
             
-            // 3. PROJEDEKİ TÜM ÖNEMLİ DOSYALARI BUL VE OKU
+            // 3. PROJEDEKİ TÜM ÖNEMLİ DOSYALARI OKU
             console.log('🔍 Proje dosyaları taranıyor...');
             
-            // Önce kök dizindeki dosyaları bul
-            const getRootFiles = async () => {
-              try {
-                const { data } = await github.rest.repos.getContent({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  path: ''
-                });
-                return data.filter(item => item.type === 'file').map(f => f.name);
-              } catch (e) {
-                return [];
-              }
-            };
-            
-            const rootFiles = await getRootFiles();
-            console.log(`📁 Kök dosyalar: ${rootFiles.join(', ')}`);
-            
-            // Proje tipini AI'nın kendisi anlasın diye sadece bazı dosyaları oku
-            const readFileContent = async (filePath) => {
-              try {
-                const { data } = await github.rest.repos.getContent({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  path: filePath
-                });
-                if (data.encoding === 'base64') {
-                  return Buffer.from(data.content, 'base64').toString('utf-8');
-                }
-              } catch (e) {}
-              return null;
-            };
-            
-            // Projede hangi dil/teknoloji olduğunu anlamak için kritik dosyalar
+            // Kritik dosyaları oku
             const criticalFiles = [
-              ...rootFiles.filter(f => 
-                f.endsWith('.json') || 
-                f.endsWith('.js') || f.endsWith('.ts') || f.endsWith('.jsx') || f.endsWith('.tsx') ||
-                f.endsWith('.py') || f.endsWith('.java') || f.endsWith('.kt') || f.endsWith('.cpp') ||
-                f.endsWith('.cs') || f.endsWith('.go') || f.endsWith('.rs') || f.endsWith('.php') ||
-                f.endsWith('.rb') || f.endsWith('.swift') || f.endsWith('.dart') ||
-                f.endsWith('.html') || f.endsWith('.css') || f.endsWith('.scss') ||
-                f.endsWith('.xml') || f.endsWith('.yaml') || f.endsWith('.yml') ||
-                f === 'package.json' || f === 'requirements.txt' || f === 'pom.xml' ||
-                f === 'build.gradle' || f === 'Cargo.toml' || f === 'go.mod' ||
-                f === 'Dockerfile' || f === 'docker-compose.yml' || f === 'Makefile'
-              )
-            ].slice(0, 15); // İlk 15 dosya
+              'package.json', 'requirements.txt', 'pom.xml',
+              'build.gradle', 'Cargo.toml', 'go.mod',
+              'Dockerfile', 'docker-compose.yml', 'Makefile',
+              'README.md', '.gitignore',
+              'index.html', 'main.js', 'app.py', 'main.py',
+              'src/main.rs', 'src/main.go'
+            ];
             
             let projectContext = "📂 PROJE DOSYALARI:\n\n";
+            let filesRead = 0;
+            
             for (const file of criticalFiles) {
-              const content = await readFileContent(file);
-              if (content) {
-                projectContext += `📄 ${file}:\n\`\`\`\n${content.substring(0, 1000)}${content.length > 1000 ? '\n... (devamı var)' : ''}\n\`\`\`\n\n`;
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: file
+                });
+                
+                if (data.type === 'file' && data.encoding === 'base64') {
+                  const content = Buffer.from(data.content, 'base64').toString('utf-8');
+                  const preview = content.substring(0, 1000);
+                  projectContext += `📄 ${file}:\n\`\`\`\n${preview}${content.length > 1000 ? '\n... (devamı var)' : ''}\n\`\`\`\n\n`;
+                  filesRead++;
+                }
+              } catch (e) {
+                // Dosya yoksa sorun değil
               }
             }
             
-            // 4. AI'YA GÖNDERİLECEK MÜKEMMEL PROMPT
+            console.log(`✅ ${filesRead} dosya okundu`);
+            
+            // 4. AI PROMPT
             const systemPrompt = `
-# 🚀 EVRENSEL KOD ÜRETİCİ - SENARYO TALİMATLARI
+# 🚀 EVRENSEL KOD ÜRETİCİ
 
-Sen "Universal Code Generator" adında her türlü kodlama projesini otomatik oluşturabilen bir AI ajanısın.
+Sen "Universal Code Generator" adında her türlü projeyi otomatik oluşturabilen bir AI ajanısın.
 
-## 🎯 TEMEL PRENSİPLER:
-1. KULLANICI NE İSTERSE ONU TAM OLARAK YAP
-2. ASLA YARIM BIRAKMA, ASLA "BURAYI SEN TAMAMLA" DEME
-3. TÜM KODLAR ÇALIŞIR OLSUN, TÜM BAĞIMLILIKLARI EKLE
+## KURALLAR:
+1. KULLANICI NE İSTERSE ONU TAM YAP
+2. ASLA YARIM BIRAKMA
+3. TÜM KODLAR ÇALIŞIR OLSUN
+4. TÜM BAĞIMLILIKLARI EKLE
 
-## 🛠️ DESTEKLENEN TEKNOLOJİLER:
-- ✅ Web: HTML, CSS, JavaScript, React, Vue, Angular
-- ✅ Backend: Node.js, Python (Django/Flask), Java (Spring), Go, Rust, PHP
-- ✅ Mobil: Android (Kotlin/Java), iOS (Swift), Flutter, React Native
-- ✅ Masaüstü: Electron, JavaFX, PyQt, C#
-- ✅ Oyun: Unity (C#), Godot (GDScript), Basit Canvas oyunları
-- ✅ Veritabanı: SQL, MongoDB, Firebase
-- ✅ DevOps: Docker, Kubernetes, CI/CD yapılandırmaları
-- ✅ Script: Bash, Python, PowerShell, Automation scriptleri
-
-## 📁 DOSYA FORMATI (DEĞİŞMEZ):
+## DOSYA FORMATI:
 Her dosya için bu formatı kullan:
 
 ### DOSYA: dosya/yolu.uzanti
@@ -141,51 +109,17 @@ Her dosya için bu formatı kullan:
 [DOSYANIN TAM İÇERİĞİ]
 \`\`\`
 
-ÖRNEK:
-### DOSYA: index.html
-\`\`\`html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Benim Projem</title>
-</head>
-<body>
-    <h1>Merhaba Dünya</h1>
-</body>
-</html>
-\`\`\`
+## DESTEKLENEN TEKNOLOJİLER:
+- Web: HTML, CSS, JavaScript, React, Vue
+- Backend: Node.js, Python, Java, Go, Rust, PHP
+- Mobil: Android, iOS, Flutter
+- Masaüstü: Electron, JavaFX
+- Oyun: Canvas, Basit oyun motorları
+- Veritabanı: SQL, MongoDB
+- DevOps: Docker, CI/CD
 
-### DOSYA: app.js
-\`\`\`javascript
-console.log("Merhaba Dünya");
-\`\`\`
-
-## ⚡ TALİMATLAR:
-1. Kullanıcı ne istiyorsa onu tam olarak yap
-2. Tüm gerekli dosyaları oluştur
-3. Bağımlılıkları ekle (package.json, requirements.txt, build.gradle, vs.)
-4. README.md oluştur (projeyi nasıl çalıştıracağını anlatan)
-5. .gitignore dosyası ekle
-6. Eğer proje varsa, mevcut dosyaları bozma, geliştir
-7. Eğer proje yoksa, sıfırdan profesyonel bir proje oluştur
-
-## 🚨 ÖNEMLİ UYARILAR:
-- YANITINDA SADECE DOSYALAR VE KODLAR OLSUN
-- AÇIKLAMA YAPMA, SADECE KOD YAZ
-- TÜM KODLAR TAM VE ÇALIŞIR OLSUN
-- HATA KONTROLÜ YAP, EXCEPTION HANDLING EKLE
-- MODERN VE TEMİZ KOD YAZ
-- PERFORMANSLI KOD YAZ
-- GÜVENLİ KOD YAZ
-
-## 🏁 ŞİMDİ BAŞLA:
-Aşağıdaki kullanıcı komutunu yerine getir:
-"${userCommand}"
-
-MEVCUT PROJE DURUMU:
-${projectContext}
-
-TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLARAK gerçekleştir.
+## ŞİMDİ BAŞLA:
+Kullanıcı komutu: "${userCommand}"
 `.trim();
 
             // 5. DEEPSEEK API ÇAĞRISI
@@ -207,7 +141,7 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
                     },
                     {
                       role: 'user',
-                      content: `PROJE: ${context.repo.owner}/${context.repo.repo}\nKOMUT: ${userCommand}\n\nLütfen gerekli tüm dosyaları oluştur.`
+                      content: `PROJE: ${context.repo.owner}/${context.repo.repo}\nKOMUT: ${userCommand}\n\nPROJE DURUMU:\n${projectContext}\n\nLütfen gerekli tüm dosyaları oluştur.`
                     }
                   ],
                   max_tokens: 32000,
@@ -217,7 +151,7 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
               
               if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`API Hatası: ${response.status} - ${errorText}`);
+                throw new Error(`API Hatası: ${response.status} - ${errorText.substring(0, 200)}`);
               }
               
               const data = await response.json();
@@ -229,10 +163,10 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
               
               console.log(`✅ AI yanıtı alındı (${aiResponse.length} karakter)`);
               
-              // 6. AI YANITINDAN DOSYALARI ÇIKAR VE UYGULA
+              // 6. DOSYALARI ÇIKAR VE UYGULA
               console.log('🔄 Dosyalar işleniyor...');
               
-              // Dosya pattern'ini bul: ### DOSYA: ... ``` ... ```
+              // Dosya pattern'ini bul
               const fileRegex = /### DOSYA:\s*(.+?)\s*\n```(?:[a-z]+)?\n([\s\S]*?)\n```/g;
               let match;
               const createdFiles = [];
@@ -242,14 +176,7 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
                 const filePath = match[1].trim();
                 let fileContent = match[2].trim();
                 
-                // Eğer ilk satırda dil belirtilmişse onu kaldır
-                const lines = fileContent.split('\n');
-                if (lines[0] && lines[0].match(/^[a-zA-Z]+$/)) {
-                  lines.shift(); // İlk satırı kaldır
-                  fileContent = lines.join('\n');
-                }
-                
-                console.log(`📝 İşleniyor: ${filePath} (${fileContent.length} karakter)`);
+                console.log(`📝 İşleniyor: ${filePath}`);
                 
                 try {
                   // Dosya var mı kontrol et
@@ -281,10 +208,8 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
                     createdFiles.push(filePath);
                   }
                   
-                  console.log(`   ${sha ? '🔄 Güncellendi' : '✅ Oluşturuldu'}`);
-                  
                 } catch (fileError) {
-                  console.error(`   ❌ Hata: ${fileError.message}`);
+                  console.error(`❌ ${filePath} hatası:`, fileError.message);
                 }
               }
               
@@ -294,7 +219,7 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
                 totalFiles: createdFiles.length + updatedFiles.length,
                 created: createdFiles,
                 updated: updatedFiles,
-                aiResponsePreview: aiResponse.substring(0, 2000) + (aiResponse.length > 2000 ? '...' : '')
+                aiResponsePreview: aiResponse.substring(0, 2000)
               };
               
               core.setOutput('files_created', createdFiles.length.toString());
@@ -337,9 +262,7 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
             const userCommand = process.env.USER_COMMAND || '';
             
             let report = `# 🤖 UNIVERSAL AI AGENT - İŞLEM TAMAMLANDI\n\n`;
-            
             report += `## 📝 KULLANICI KOMUTU\n\`\`\`\n${userCommand}\n\`\`\`\n\n`;
-            
             report += `## 📊 DOSYA İSTATİSTİKLERİ\n`;
             report += `- **Toplam İşlenen Dosya:** ${totalFiles}\n`;
             report += `- **Yeni Oluşturulan:** ${filesCreated}\n`;
@@ -347,28 +270,17 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
             
             if (totalFiles > 0) {
               report += `## ✅ BAŞARILI\n`;
-              report += `AI Agent talimatınızı işledi ve gerekli dosyaları oluşturdu/güncelledi.\n`;
-              report += `Değişiklikleri GitHub'da görebilirsiniz.\n\n`;
-            } else {
-              report += `## ⚠️ UYARI\n`;
-              report += `AI yanıt verdi ancak dosya oluşturulamadı.\n`;
-              report += `Talimatınızı daha net verin veya mevcut projeyi geliştirmesini isteyin.\n\n`;
+              report += `AI Agent talimatınızı işledi.\n\n`;
             }
             
             if (aiPreview) {
               report += `## 🧠 AI YANIT ÖZETİ\n`;
-              report += `<details>\n<summary>Tıklayarak AI analizini görüntüleyin</summary>\n\n`;
+              report += `<details>\n<summary>Tıklayarak görüntüle</summary>\n\n`;
               report += `\`\`\`\n${aiPreview}\n\`\`\`\n`;
               report += `</details>\n\n`;
             }
             
-            report += `## 🚀 SONRAKİ ADIMLAR\n`;
-            report += `1. Dosya değişikliklerini inceleyin\n`;
-            report += `2. Gerekirse yerel makinenize çekin (\`git pull\`)\n`;
-            report += `3. Projeyi test edin\n`;
-            report += `4. Yeni bir Issue açarak daha fazla geliştirme isteyin\n\n`;
-            
-            report += `---\n*Bu rapor Universal AI Agent tarafından otomatik oluşturuldu.*`;
+            report += `---\n*Universal AI Agent*`;
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -381,14 +293,6 @@ TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLA
       - name: 🏁 İŞLEM TAMAMLANDI
         if: always()
         run: |
-          echo "========================================"
           echo "🤖 UNIVERSAL AI AGENT İŞLEMİ TAMAMLANDI"
-          echo "========================================"
-          echo ""
-          echo "📊 Sonuçlar:"
-          echo "- Oluşturulan dosya: ${{ steps.ai_engine.outputs.files_created || 0 }}"
-          echo "- Güncellenen dosya: ${{ steps.ai_engine.outputs.files_updated || 0 }}"
-          echo "- Toplam işlem: ${{ steps.ai_engine.outputs.total_files || 0 }}"
-          echo ""
-          echo "✅ AI Agent görevini tamamladı."
-          echo "📝 Detaylar için Issue yorumlarını kontrol edin."
+          echo "Oluşturulan: ${{ steps.ai_engine.outputs.files_created || 0 }}"
+          echo "Güncellenen: ${{ steps.ai_engine.outputs.files_updated || 0 }}"
