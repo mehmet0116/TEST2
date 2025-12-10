@@ -1,4 +1,4 @@
-name: DEEPSEEK OMNI v20.0 (UNIVERSAL GOD MODE)
+name: DEEPSEEK OMNI v20.1 (FIXED)
 on:
   issues:
     types: [opened, edited]
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: 'Görev Tanımı'
+        description: 'Görev'
         required: true
-        default: 'Projeyi analiz et, en uygun ortamı kur ve geliştir'
+        default: 'Projeyi analiz et ve geliştir'
 
 permissions:
   contents: write
@@ -18,9 +18,6 @@ permissions:
   actions: write
 
 jobs:
-  # ==============================================================================
-  # 1. FAZ: BEYİN FIRTINASI VE ORTAM ANALİZİ (Ajan önce ne yapacağını planlar)
-  # ==============================================================================
   architect_planning:
     runs-on: ubuntu-latest
     if: github.actor != 'github-actions[bot]'
@@ -29,12 +26,12 @@ jobs:
       user_request: ${{ steps.plan.outputs.user_request }}
     
     steps:
-      - name: 🚀 Projeyi Masaya Yatır (Checkout)
+      - name: 🚀 Projeyi Çek
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 🧠 Mimar Analizi (Architect)
+      - name: 🧠 Mimar Analizi
         id: plan
         uses: actions/github-script@v7
         env:
@@ -44,14 +41,11 @@ jobs:
           script: |
             const fs = require('fs');
             
-            console.log("🚀 [OMNI] Mimar Modu Devrede. Proje inceleniyor...");
-            
-            // 1. DİNAMİK DOSYA TARAMASI (Dosya uzantısına bakmaksızın)
-            // Sadece kod dosyalarını değil, config dosyalarını da okur.
-            let context = "### MEVCUT DOSYA SİSTEMİ:\n";
+            // HATA BURADAYDI: 'context' yerine 'projectContext' kullandım.
+            let projectContext = "### MEVCUT DOSYA SİSTEMİ:\n";
             
             function scanFiles(dir, depth = 0) {
-              if (depth > 3) return; // Çok derine inme
+              if (depth > 3) return;
               if (!fs.existsSync(dir)) return;
               
               const files = fs.readdirSync(dir, { withFileTypes: true });
@@ -59,15 +53,14 @@ jobs:
                 if (file.name.startsWith('.') || file.name === 'node_modules' || file.name === 'build') continue;
                 
                 if (file.isDirectory()) {
-                  context += `📁 [KLASÖR] ${file.name}\n`;
+                  projectContext += `📁 [KLASÖR] ${file.name}\n`;
                   scanFiles(`${dir}/${file.name}`, depth + 1);
                 } else {
-                  // Kritik dosyaları oku
                   if (file.name.match(/(json|yaml|yml|gradle|xml|py|js|ts|cpp|c|h|java|kt|st|plc|txt|md)$/i)) {
                     try {
                         const content = fs.readFileSync(`${dir}/${file.name}`, 'utf8');
                         if (content.length < 5000) {
-                            context += `>>> DOSYA: ${dir}/${file.name}\n${content}\n---\n`;
+                            projectContext += `>>> DOSYA: ${dir}/${file.name}\n${content}\n---\n`;
                         }
                     } catch(e) {}
                   }
@@ -76,62 +69,40 @@ jobs:
             }
             scanFiles('.');
             
-            // 2. ORTAM BELİRLEME PROMPTU
-            // DeepSeek'e soruyoruz: "Bu projeyi çalıştırmak için hangi bilgisayara ihtiyacım var?"
             const prompt = `
-            Sen DeepSeek OMNI, evrensel bir yazılım mimarısın.
+            Sen DeepSeek OMNI. Projeyi analiz et ve GEREKLİ ORTAMI JSON olarak belirle.
+            KULLANICI: ${process.env.USER_MSG}
+            MEVCUT DURUM: ${projectContext}
             
-            GÖREVİN:
-            Aşağıdaki proje yapısını ve kullanıcı isteğini incele.
-            Bu projenin çalışması için gereken ORTAMI (Environment) JSON formatında belirle.
-            
-            KULLANICI İSTEĞİ: ${process.env.USER_MSG}
-            
-            MEVCUT DOSYALAR:
-            ${context}
-            
-            DİKKAT:
-            - Eğer proje eski bir Java projesiyse, Java 8 veya 11 seç. Yeni ise 17 veya 21.
-            - PLC projesi ise ona uygun notlar düş.
-            - Robotik (C++/Python) ise gerekli kütüphaneleri yaz.
-            
-            SADECE ŞU JSON FORMATINDA CEVAP VER (Başka yazı yazma):
+            SADECE JSON FORMATINDA CEVAP VER:
             {
-              "language": "java" | "python" | "node" | "cpp" | "plc" | "multi",
-              "java_version": "17", (Eğer Java ise)
-              "python_version": "3.10", (Eğer Python ise)
-              "node_version": "20", (Eğer Node ise)
-              "install_command": "npm install" veya "pip install -r requirements.txt",
-              "build_command": "./gradlew assembleDebug" veya "python main.py",
-              "system_packages": ["cmake", "gcc"] (Linux paketleri)
+              "language": "java|python|node|cpp|plc",
+              "java_version": "17",
+              "python_version": "3.10",
+              "node_version": "20",
+              "install_command": "komut",
+              "build_command": "komut",
+              "system_packages": ["paket1"]
             }
             `;
             
-            // API ÇAĞRISI
             const response = await fetch("https://api.deepseek.com/chat/completions", {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${process.env.API_KEY}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    model: "deepseek-chat", // Hızlı analiz için chat modeli
-                    messages: [{ role: "system", content: "Sen bir JSON yapılandırma botusun." }, { role: "user", content: prompt }],
+                    model: "deepseek-chat",
+                    messages: [{ role: "system", content: "JSON Config Bot" }, { role: "user", content: prompt }],
                     stream: false
                 })
             });
             
             const data = await response.json();
-            let configJson = data.choices[0].message.content.trim();
-            // Markdown temizliği
-            configJson = configJson.replace(/```json/g, '').replace(/```/g, '').trim();
+            let configJson = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+            console.log("CONFIG:", configJson);
             
-            console.log("🔧 ALGILANAN ORTAM:", configJson);
-            
-            // Çıktıları aktar
             core.setOutput('env_config', Buffer.from(configJson).toString('base64'));
             core.setOutput('user_request', process.env.USER_MSG);
 
-  # ==============================================================================
-  # 2. FAZ: GELİŞTİRME VE İYİLEŞTİRME (Development & Self-Healing)
-  # ==============================================================================
   development_cycle:
     needs: architect_planning
     runs-on: ubuntu-latest
@@ -139,39 +110,29 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     
     steps:
-      - name: 🚀 Çalışma Alanını Hazırla
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: ⚙️ Dinamik Ortamı Kur
-        id: setup
+      - uses: actions/checkout@v4
+      
+      - name: ⚙️ Ortamı Kur
         run: |
-          # 1. Config'i Çöz
           CONFIG=$(echo "${{ needs.architect_planning.outputs.env_config }}" | base64 --decode)
           echo "CONFIG_JSON=$CONFIG" >> $GITHUB_ENV
           
-          # JSON Parsing (jq ile)
-          LANG=$(echo "$CONFIG" | jq -r '.language')
+          # JQ yüklü gelir ama garanti olsun
+          sudo apt-get install -y jq
+          
           JAVA_VER=$(echo "$CONFIG" | jq -r '.java_version // "17"')
           PY_VER=$(echo "$CONFIG" | jq -r '.python_version // "3.10"')
           NODE_VER=$(echo "$CONFIG" | jq -r '.node_version // "20"')
           SYS_PKGS=$(echo "$CONFIG" | jq -r '.system_packages[]?' | tr '\n' ' ')
           
-          echo "🌍 Algılanan Dil: $LANG"
-          
-          # Sistem Paketlerini Kur (Robotik/C++ için önemli)
           if [ ! -z "$SYS_PKGS" ]; then
-            echo "🔧 Sistem Paketleri Kuruluyor: $SYS_PKGS"
             sudo apt-get update && sudo apt-get install -y $SYS_PKGS
           fi
           
-          # Dillerin Kurulumu (Hepsini hazır et, ne olur ne olmaz)
           echo "JAVA_VER=$JAVA_VER" >> $GITHUB_ENV
           echo "PY_VER=$PY_VER" >> $GITHUB_ENV
           echo "NODE_VER=$NODE_VER" >> $GITHUB_ENV
 
-      # DİNAMİK ORTAMLAR (Senin istediğin versiyon neyse onu kurar)
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -185,11 +146,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VER }}
 
-      # --------------------------------------------------------------------------------
-      # 🧠 ANA BEYİN: KOD YAZMA + HATA DÜZELTME DÖNGÜSÜ
-      # Burası "Copilot gibi" çalışır. Kodu yazar, dener, olmazsa düzeltir.
-      # --------------------------------------------------------------------------------
-      - name: 🔄 DeepSeek OMNI Döngüsü (Write -> Test -> Fix)
+      - name: 🔄 Kodlama Döngüsü
         uses: actions/github-script@v7
         timeout-minutes: 60
         env:
@@ -200,126 +157,82 @@ jobs:
           script: |
             const fs = require('fs');
             const { execSync } = require('child_process');
+            const path = require('path');
             
             const apiKey = process.env.API_KEY;
             const config = JSON.parse(process.env.CONFIG);
             const userMsg = process.env.USER_MSG;
             
-            // API Fonksiyonu
-            async function askDeepSeek(messages) {
-                const response = await fetch("https://api.deepseek.com/chat/completions", {
+            async function askAI(msgs) {
+                const res = await fetch("https://api.deepseek.com/chat/completions", {
                     method: "POST",
                     headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        model: "deepseek-reasoner", // En zeki model
-                        messages: messages,
-                        stream: false,
-                        max_tokens: 8000
-                    })
+                    body: JSON.stringify({ model: "deepseek-reasoner", messages: msgs, max_tokens: 8000 })
                 });
-                const data = await response.json();
-                return data.choices[0].message;
+                const d = await res.json();
+                return d.choices[0].message;
             }
 
-            // Dosya Okuma Fonksiyonu
-            function getFileContext() {
-                let ctx = "";
-                // Basit tarama
-                try {
-                    const files = fs.readdirSync('.').filter(f => !f.startsWith('.'));
-                    for(const f of files) {
-                        if(fs.statSync(f).isFile()) ctx += `FILE: ${f}\n${fs.readFileSync(f, 'utf8').substring(0,2000)}\n\n`;
-                    }
-                } catch(e) {}
-                return ctx;
-            }
-
-            // --- 1. TUR: KODLAMA ---
-            console.log("🎯 [TUR 1] Kodlama Başlıyor...");
-            let conversation = [
-                { role: "system", content: `Sen DeepSeek OMNI. Kullanıcının isteğini yerine getir.
-                  PROJE AYARLARI: ${JSON.stringify(config)}
-                  KURALLAR:
-                  1. Tam çalışan kod yaz.
-                  2. Dosya formatı: ---FILE:isim--- icerik ---END---
-                  3. PLC/Robotik ise mantığı ona göre kur.` 
-                },
-                { role: "user", content: `İSTEK: ${userMsg}\n\nMEVCUT DOSYALAR:\n${getFileContext()}` }
-            ];
-
-            let aiMsg = await askDeepSeek(conversation);
-            let aiContent = aiMsg.content;
-            conversation.push(aiMsg); // Hafızaya at
-
-            // Dosyaları Yaz
-            function writeFiles(text) {
+            // Dosyaları Yazma Fonksiyonu
+            function writeFiles(txt) {
                 const regex = /---FILE:\s*(.*?)---\n([\s\S]*?)---END---/g;
                 let m;
-                while((m = regex.exec(text)) !== null) {
-                    fs.writeFileSync(m[1].trim(), m[2].trim());
-                    console.log(`✅ Yazıldı: ${m[1]}`);
+                let count = 0;
+                while((m = regex.exec(txt)) !== null) {
+                    const fPath = m[1].trim();
+                    const dir = path.dirname(fPath);
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                    fs.writeFileSync(fPath, m[2].trim());
+                    console.log(`Yazıldı: ${fPath}`);
+                    count++;
                 }
-            }
-            writeFiles(aiContent);
-
-            // --- 2. TUR: TEST VE DERLEME (Build) ---
-            console.log("🔨 [TUR 2] Test ve Derleme...");
-            let buildCmd = config.build_command || "echo 'Build komutu yok'";
-            let installCmd = config.install_command || "echo 'Kurulum yok'";
-            
-            let buildLog = "";
-            let buildSuccess = false;
-
-            try {
-                console.log(`🔌 Bağımlılıklar yükleniyor: ${installCmd}`);
-                execSync(installCmd, { stdio: 'inherit' });
-                
-                console.log(`🚀 Derleniyor: ${buildCmd}`);
-                execSync(buildCmd, { stdio: 'inherit' });
-                buildSuccess = true;
-                console.log("🎉 DERLEME BAŞARILI!");
-            } catch (error) {
-                console.log("💥 DERLEME HATASI OLUŞTU!");
-                buildLog = error.message + "\n" + (error.stdout ? error.stdout.toString() : "") + "\n" + (error.stderr ? error.stderr.toString() : "");
+                return count;
             }
 
-            // --- 3. TUR: SELF-HEALING (Kendi Kendini Tamir) ---
-            if (!buildSuccess) {
-                console.log("🚑 [TUR 3] Hata Düzeltme Modu Devrede...");
-                
-                conversation.push({
-                    role: "user",
-                    content: `KODLARI YAZDIN AMA HATA ALDIM. İşte hata çıktısı:\n\n${buildLog.substring(0, 5000)}\n\nLütfen hatayı analiz et ve dosyaları DÜZELT.`
-                });
-                
-                let fixMsg = await askDeepSeek(conversation);
-                console.log("🧠 Düzeltme geldi, dosyalar güncelleniyor...");
-                writeFiles(fixMsg.content);
-                
-                // Son kez dene (Opsiyonel)
+            let msgs = [
+                { role: "system", content: `Sen DeepSeek OMNI.
+                  PROJE: ${JSON.stringify(config)}
+                  KURALLAR:
+                  1. Tam çalışan kod yaz.
+                  2. FORMAT: ---FILE:yol/ad.uzanti--- icerik ---END---
+                  3. "Burayı sen tamamla" deme.` 
+                },
+                { role: "user", content: `GÖREV: ${userMsg}` }
+            ];
+
+            console.log("TUR 1: Kodlama...");
+            let aiRes = await askAI(msgs);
+            msgs.push(aiRes);
+            writeFiles(aiRes.content);
+
+            console.log("TUR 2: Test...");
+            let buildCmd = config.build_command;
+            if(buildCmd && buildCmd !== "null") {
                 try {
                     execSync(buildCmd, { stdio: 'inherit' });
-                    console.log("🎉 DÜZELTME SONRASI BAŞARILI!");
-                } catch(e) { console.log("⚠️ Hala hata var, ama en iyi halini kaydettim."); }
+                    console.log("✅ BAŞARILI!");
+                } catch(e) {
+                    console.log("❌ HATA ALINDI. Düzeltiliyor...");
+                    msgs.push({ role: "user", content: `HATA: ${e.message}. Düzelt.` });
+                    let fix = await askAI(msgs);
+                    writeFiles(fix.content);
+                }
             }
 
-      # 3. KODLARI KAYDET
-      - name: 💾 Commit & Push
+      - name: 💾 Kaydet
         run: |
           git config --global user.name "DeepSeek OMNI"
-          git config --global user.email "omni@deepseek.com"
+          git config --global user.email "bot@deepseek.com"
           git add .
-          git commit -m "🤖 OMNI: Kodlama ve Otomatik Düzeltme" || echo "Değişiklik yok"
+          git commit -m "OMNI Geliştirmesi" || echo "Yok"
           git push
-
-      # 4. SONUÇ YÜKLEME (Android APK vb.)
-      - name: 📤 Artifacts (Varsa)
+      
+      - name: 📤 Sonuçlar
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-outputs
+          name: project-build
           path: |
             **/*.apk
-            **/*.jar
             **/*.exe
             build/
