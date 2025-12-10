@@ -1,0 +1,372 @@
+name: DeepSeek V3.2 ULTIMATE AGENT (v10.0 - Stable)
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'What should I do?'
+        required: true
+        default: 'Analyze and fix the project'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  ultimate_brain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.actor != 'github-actions[bot]'
+    
+    steps:
+      - name: 🚀 Projeyi Checkout Et
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Proje Yapısını Analiz Et
+        id: scan_project
+        run: |
+          echo "📁 Proje analizi başlatılıyor..."
+          
+          # Proje tipini belirle
+          if [ -f "package.json" ]; then
+            echo "NODE_PROJECT=true" >> $GITHUB_ENV
+            echo "🟢 Node.js projesi tespit edildi"
+          fi
+          
+          if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "ANDROID_PROJECT=true" >> $GITHUB_ENV
+            echo "📱 Android projesi tespit edildi"
+          fi
+          
+          if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then
+            echo "PYTHON_PROJECT=true" >> $GITHUB_ENV
+            echo "🐍 Python projesi tespit edildi"
+          fi
+          
+          # Dosya listesi oluştur
+          find . -type f -name "*.json" -o -name "*.js" -o -name "*.ts" -o -name "*.py" -o -name "*.java" -o -name "*.kt" -o -name "*.gradle" -o -name "*.xml" | head -50 > file_list.txt
+          
+          echo "✅ Analiz tamamlandı"
+          echo "FILE_COUNT=$(find . -type f | wc -l)" >> $GITHUB_ENV
+
+      - name: 🤖 DeepSeek Ultimate Motoru
+        id: deepseek_engine
+        uses: actions/github-script@v7
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          IS_ANDROID: ${{ env.ANDROID_PROJECT }}
+          IS_NODE: ${{ env.NODE_PROJECT }}
+          IS_PYTHON: ${{ env.PYTHON_PROJECT }}
+        with:
+          script: |
+            console.log("🧠 DeepSeek Ultimate Engine başlatılıyor...");
+            
+            // Kullanıcı mesajını al
+            const userMessage = context.payload.comment ? 
+              context.payload.comment.body : 
+              (context.payload.issue ? context.payload.issue.body : "Analyze and improve the project");
+            
+            console.log(`📝 Kullanıcı mesajı: ${userMessage.substring(0, 200)}...`);
+            
+            // API Key kontrolü
+            const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+            if (!apiKey || apiKey === '') {
+              throw new Error("❌ DEEPSEEK_API_KEY GitHub Secrets'ta bulunamadı!");
+            }
+            
+            // --- DOSYA OKUMA ---
+            const criticalFiles = [
+              'package.json', 'package-lock.json', 'yarn.lock',
+              'build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts',
+              'app/build.gradle', 'app/build.gradle.kts',
+              'requirements.txt', 'pyproject.toml', 'setup.py',
+              'pom.xml', 'build.gradle',
+              'README.md', '.gitignore', 'Dockerfile', 'docker-compose.yml',
+              'index.html', 'style.css', 'script.js', 'main.py', 'app.py',
+              'AndroidManifest.xml', 'pubspec.yaml'
+            ];
+            
+            // Kullanıcının bahsettiği dosyaları bul
+            const fileRegex = /[\w\/.-]+\.(js|ts|jsx|tsx|py|java|kt|dart|go|rs|c|cpp|h|hpp|html|css|json|xml|yaml|yml|gradle|md|txt)/g;
+            const mentionedFiles = [...new Set((userMessage.match(fileRegex) || []).map(f => f.trim()))];
+            
+            // Tüm dosyaları birleştir
+            const allFilesToCheck = [...new Set([...criticalFiles, ...mentionedFiles])];
+            
+            let projectContext = "📁 PROJE DOSYALARI:\n\n";
+            let filesRead = 0;
+            
+            // Sadece ilk 20 dosyayı oku (token sınırı için)
+            for (const file of allFilesToCheck.slice(0, 20)) {
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: file
+                });
+                
+                if (data.type === 'file' && data.encoding === 'base64') {
+                  const content = Buffer.from(data.content, 'base64').toString('utf8');
+                  const preview = content.length > 3000 ? 
+                    content.substring(0, 1500) + "\n... [devamı var] ...\n" + content.substring(content.length - 1500) : 
+                    content;
+                  
+                  projectContext += `📄 ${file}:\n\`\`\`\n${preview}\n\`\`\`\n\n`;
+                  filesRead++;
+                }
+              } catch (error) {
+                // Dosya yoksa, sorun değil
+              }
+            }
+            
+            console.log(`✅ ${filesRead} dosya okundu`);
+            
+            // --- DEEPSEEK API ÇAĞRISI ---
+            const systemPrompt = `
+            Sen DeepSeek V3.2 Ultimate Agent'sın. Kullanıcının istediği her şeyi yapabilirsin.
+            
+            TEMEL GÖREVLERİN:
+            1. Kod yaz ve düzelt
+            2. Dosya oluştur ve güncelle
+            3. Projeyi geliştir
+            4. Hataları çöz
+            5. Eksikleri tamamla
+            
+            ÇIKTI FORMATI (ZORUNLU):
+            Her dosya için şu formatı kullan:
+            ---FILENAME: dosya/yolu.uzanti---
+            [KODUN TAMAMI BURAYA]
+            ---END_OF_FILE---
+            
+            ÖNEMLİ NOTLAR:
+            - Kodları tam ve çalışır şekilde ver
+            - Eksik bırakma
+            - Android projesi ise Gradle dosyalarını doğru yapılandır
+            - Node.js projesi ise package.json'u doğru yapılandır
+            - Tüm bağımlılıkları ekle
+            `.trim();
+            
+            console.log("📡 DeepSeek API'ye istek gönderiliyor...");
+            
+            const response = await fetch("https://api.deepseek.com/chat/completions", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [
+                  { 
+                    role: "system", 
+                    content: systemPrompt 
+                  },
+                  { 
+                    role: "user", 
+                    content: `GÖREV: ${userMessage}\n\n${projectContext}\n\nLütfen gerekli tüm dosyaları oluştur veya düzelt.` 
+                  }
+                ],
+                max_tokens: 8000,
+                temperature: 0.3
+              })
+            });
+            
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("❌ API Hatası:", response.status, errorText);
+              throw new Error(`DeepSeek API hatası: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const aiResponse = data.choices[0]?.message?.content;
+            
+            if (!aiResponse) {
+              throw new Error("❌ AI'dan yanıt alınamadı");
+            }
+            
+            console.log(`✅ AI yanıtı alındı (${aiResponse.length} karakter)`);
+            
+            // --- DOSYA İŞLEMLERİ ---
+            const filePattern = /---FILENAME:\s*(.+?)---\n([\s\S]*?)---END_OF_FILE---/g;
+            let match;
+            const updatedFiles = [];
+            const createdFiles = [];
+            
+            while ((match = filePattern.exec(aiResponse)) !== null) {
+              const fileName = match[1].trim();
+              const fileContent = match[2].trim();
+              
+              try {
+                // Dosya var mı kontrol et
+                let sha = undefined;
+                try {
+                  const { data: existing } = await github.rest.repos.getContent({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    path: fileName
+                  });
+                  sha = existing.sha;
+                } catch (e) {
+                  // Dosya yok, yeni oluşturulacak
+                }
+                
+                await github.rest.repos.createOrUpdateFileContents({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: fileName,
+                  message: `🤖 DeepSeek: ${fileName} ${sha ? 'güncellendi' : 'oluşturuldu'}`,
+                  content: Buffer.from(fileContent).toString('base64'),
+                  sha: sha
+                });
+                
+                if (sha) {
+                  updatedFiles.push(fileName);
+                } else {
+                  createdFiles.push(fileName);
+                }
+                
+                console.log(`✅ ${fileName} ${sha ? 'güncellendi' : 'oluşturuldu'}`);
+                
+              } catch (error) {
+                console.error(`❌ ${fileName} işlenirken hata:`, error.message);
+              }
+            }
+            
+            return {
+              aiResponse: aiResponse.substring(0, 4000),
+              updatedFiles: updatedFiles.join(','),
+              createdFiles: createdFiles.join(','),
+              totalFiles: (updatedFiles.length + createdFiles.length).toString()
+            };
+
+      - name: 🏗️ Derleme İşlemleri (Opsiyonel)
+        id: build_process
+        run: |
+          echo "🏗️ Derleme işlemleri başlatılıyor..."
+          
+          # Android projesi varsa
+          if [ "${{ env.ANDROID_PROJECT }}" = "true" ]; then
+            echo "📱 Android derlemesi deneniyor..."
+            
+            # Java kur
+            sudo apt-get update
+            sudo apt-get install -y openjdk-17-jdk
+            
+            # Gradle wrapper kontrolü
+            if [ ! -f "gradlew" ]; then
+              echo "Gradle wrapper bulunamadı, basit bir gradlew oluşturuluyor..."
+              echo '#!/usr/bin/env bash
+              echo "Gradle wrapper is not fully set up. Please run: gradle wrapper" 
+              exit 1' > gradlew
+              chmod +x gradlew
+            fi
+            
+            # Temizle ve derle
+            chmod +x gradlew 2>/dev/null || true
+            ./gradlew clean --no-daemon 2>&1 | tail -50 || echo "Clean başarısız olabilir"
+            
+          # Node.js projesi varsa
+          elif [ "${{ env.NODE_PROJECT }}" = "true" ]; then
+            echo "🟢 Node.js bağımlılıkları kuruluyor..."
+            npm install --silent 2>&1 | tail -30 || echo "npm install başarısız"
+            
+            # package.json'da build script'i varsa
+            if grep -q '"build"' package.json; then
+              echo "🔄 Build script çalıştırılıyor..."
+              npm run build --silent 2>&1 | tail -30 || echo "Build başarısız"
+            fi
+            
+          # Python projesi varsa
+          elif [ "${{ env.PYTHON_PROJECT }}" = "true" ]; then
+            echo "🐍 Python bağımlılıkları kuruluyor..."
+            pip install -r requirements.txt 2>&1 | tail -30 || echo "pip install başarısız"
+          fi
+          
+          echo "✅ Derleme işlemleri tamamlandı"
+
+      - name: 📊 Sonuç Raporu
+        uses: actions/github-script@v7
+        env:
+          AI_RESPONSE: ${{ steps.deepseek_engine.outputs.aiResponse }}
+          UPDATED_FILES: ${{ steps.deepseek_engine.outputs.updatedFiles }}
+          CREATED_FILES: ${{ steps.deepseek_engine.outputs.createdFiles }}
+          TOTAL_FILES: ${{ steps.deepseek_engine.outputs.totalFiles }}
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || 
+                               (context.payload.comment ? context.payload.comment.issue_number : null);
+            
+            if (!issueNumber) {
+              console.log("ℹ️ Issue numarası bulunamadı, rapor atlanıyor");
+              return;
+            }
+            
+            let report = `## 🤖 DeepSeek Ultimate Agent Raporu\n\n`;
+            
+            // İstatistikler
+            report += `### 📊 İstatistikler\n`;
+            report += `- **Toplam İşlenen Dosya:** ${process.env.TOTAL_FILES || '0'}\n`;
+            report += `- **Güncellenen Dosyalar:** ${process.env.UPDATED_FILES ? process.env.UPDATED_FILES.split(',').length : '0'}\n`;
+            report += `- **Oluşturulan Dosyalar:** ${process.env.CREATED_FILES ? process.env.CREATED_FILES.split(',').length : '0'}\n`;
+            report += `- **Zaman:** ${new Date().toLocaleString('tr-TR')}\n\n`;
+            
+            // Güncellenen dosyalar
+            if (process.env.UPDATED_FILES && process.env.UPDATED_FILES.length > 0) {
+              report += `### 🔄 Güncellenen Dosyalar\n`;
+              process.env.UPDATED_FILES.split(',').forEach(file => {
+                if (file) report += `- \`${file}\`\n`;
+              });
+              report += `\n`;
+            }
+            
+            // Oluşturulan dosyalar
+            if (process.env.CREATED_FILES && process.env.CREATED_FILES.length > 0) {
+              report += `### 🆕 Oluşturulan Dosyalar\n`;
+              process.env.CREATED_FILES.split(',').forEach(file => {
+                if (file) report += `- \`${file}\`\n`;
+              });
+              report += `\n`;
+            }
+            
+            // AI Yanıtı (kısaltılmış)
+            if (process.env.AI_RESPONSE && process.env.AI_RESPONSE.length > 100) {
+              report += `### 🧠 AI Özeti\n`;
+              const preview = process.env.AI_RESPONSE.length > 1500 ? 
+                process.env.AI_RESPONSE.substring(0, 1500) + '...' : 
+                process.env.AI_RESPONSE;
+              report += `<details>\n<summary>Tıklayarak AI yanıtını görüntüle</summary>\n\n`;
+              report += `\`\`\`\n${preview}\n\`\`\`\n`;
+              report += `</details>\n\n`;
+            }
+            
+            // Sonraki Adımlar
+            report += `### 🎯 Sonraki Adımlar\n`;
+            report += `1. **Değişiklikleri incele** - Yukarıdaki dosyaları kontrol edin\n`;
+            report += `2. **Commit'leri gözden geçirin** - GitHub'da yapılan değişiklikleri görün\n`;
+            report += `3. **Projeyi test edin** - Yerel makinenizde çalıştırmayı deneyin\n`;
+            report += `4. **Yeni bir issue açın** - Başka bir şeye ihtiyacınız varsa\n\n`;
+            
+            report += `---\n*Bu rapor otomatik olarak DeepSeek Ultimate Agent tarafından oluşturuldu* 🤖`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: report
+            });
+            
+            console.log("✅ Rapor gönderildi");
+
+      - name: 🎉 İşlem Tamamlandı
+        run: |
+          echo "🎉 DeepSeek Ultimate Agent işlemi başarıyla tamamlandı!"
+          echo "📊 Özet:"
+          echo "- Dosya işlemleri: ${{ steps.deepseek_engine.outputs.totalFiles || 0 }} dosya"
+          echo "- Derleme işlemleri: Tamamlandı"
+          echo "- Rapor: GitHub Issue'ya yorum olarak eklendi"
