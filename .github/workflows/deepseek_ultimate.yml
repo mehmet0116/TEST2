@@ -1,4 +1,4 @@
-name: DEEPSEEK v12.0 ULTIMATE (STABLE & SECURE)
+name: DEEPSEEK TITAN PRO (v13.0 - STABLE & SECURE)
 on:
   issues:
     types: [opened, edited]
@@ -18,72 +18,55 @@ permissions:
   actions: write
 
 jobs:
-  deepseek_stable_brain:
+  deepseek_titan_agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # 6 Saat
+    timeout-minutes: 120
     if: github.actor != 'github-actions[bot]'
     
     steps:
-      # ========================================================
-      # 1. SAHA HAZIRLIĞI
-      # ========================================================
+      # ------------------------------------------------------------------
+      # 1. ORTAM HAZIRLIĞI
+      # ------------------------------------------------------------------
       - name: 🚀 Proje Kaynaklarını Çek
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ========================================================
-      # 2. GÜVENLİ ORTAM ANALİZİ
-      # ========================================================
-      - name: 🔍 Proje Tipini Algıla
-        id: analyzer
+      - name: 🕵️ Proje Tipini Algıla
+        id: detector
         shell: bash
         run: |
           echo "================================================"
-          echo "🕵️ GÜVENLİ ORTAM TARAMASI"
-          echo "================================================"
+          echo "🔍 PROJE ANALİZİ BAŞLIYOR..."
           
-          PROJECT_TYPE="genel"
+          PROJECT_TYPE="general"
           
           if [ -f "build.gradle" ] || [ -f "app/build.gradle" ] || [ -f "build.gradle.kts" ]; then
             PROJECT_TYPE="android"
-            echo "✅ Android Projesi"
+            echo "✅ TESPİT: Android Projesi"
+            
+            # Gradle Wrapper Onarımı
             if [ ! -f "gradlew" ]; then
+              echo "⚠️ gradlew yok, oluşturuluyor..."
               gradle wrapper --gradle-version 8.5
             fi
             chmod +x gradlew
+            
           elif [ -f "package.json" ]; then
             PROJECT_TYPE="nodejs"
-            echo "✅ Node.js Projesi"
-          elif [ -f "requirements.txt" ] || [ -f "main.py" ]; then
+            echo "✅ TESPİT: Node.js/Web Projesi"
+            
+          elif [ -f "requirements.txt" ] || [ -f "main.py" ] || [ -f "app.py" ]; then
             PROJECT_TYPE="python"
-            echo "✅ Python Projesi"
+            echo "✅ TESPİT: Python Projesi"
           fi
           
           echo "PROJECT_TYPE=$PROJECT_TYPE" >> $GITHUB_ENV
-          
-          # Dosyaları güvenli bir şekilde listele ve geçici dosyaya yaz
-          # (Context verisini JS içine gömmemek için dosyaya yazıyoruz)
-          echo "--- FILE CONTEXT START ---" > context_data.txt
-          
-          find . -maxdepth 3 -not -path '*/.*' -not -path '*/node_modules*' -not -path '*/build*' | while read file; do
-            if [ -f "$file" ]; then
-              # Sadece kod dosyalarını al (Boyut limiti 20KB)
-              if [[ "$file" =~ \.(js|json|py|java|kt|xml|gradle|html|css|md|yml|txt)$ ]]; then
-                FILE_SIZE=$(stat -c%s "$file")
-                if [ $FILE_SIZE -lt 20000 ]; then
-                  echo ">>> DOSYA: $file" >> context_data.txt
-                  cat "$file" >> context_data.txt
-                  echo -e "\n--- END OF FILE ---\n" >> context_data.txt
-                fi
-              fi
-            fi
-          done
 
-      # ========================================================
-      # 3. ORTAM KURULUMU
-      # ========================================================
-      - name: ☕ Java Kurulumu (Android)
+      # ------------------------------------------------------------------
+      # 2. PROFESYONEL KURULUMLAR
+      # ------------------------------------------------------------------
+      - name: ☕ Java 17 (Android için)
         if: env.PROJECT_TYPE == 'android'
         uses: actions/setup-java@v4
         with:
@@ -91,74 +74,98 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: 🟢 Node.js Kurulumu (Web)
+      - name: 🟢 Node.js 20
         if: env.PROJECT_TYPE == 'nodejs'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - name: 🐍 Python Kurulumu
+      - name: 🐍 Python 3.10
         if: env.PROJECT_TYPE == 'python'
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      # ========================================================
-      # 4. DEEPSEEK BEYNİ (GÜVENLİ MOD)
-      # ========================================================
-      - name: 🧠 DeepSeek Reasoner Motoru
-        id: deepseek_safe_engine
+      # ------------------------------------------------------------------
+      # 3. TITAN BEYNİ (GÜVENLİ & AKILLI MOD)
+      # ------------------------------------------------------------------
+      - name: 🧠 DeepSeek TITAN Motoru
         uses: actions/github-script@v7
-        timeout-minutes: 30
+        id: titan_brain
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # BURASI KRİTİK: Değişkenleri ENV olarak alıyoruz (Hata Çözümü)
+          API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PROJECT_TYPE: ${{ env.PROJECT_TYPE }}
-          # Kullanıcı mesajını ENV olarak alıyoruz (Injection hatasını önler)
           USER_MSG: ${{ github.event.inputs.task || github.event.comment.body || github.event.issue.body }}
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
             
-            console.log("🚀 [v12.0 GÜVENLİ MOD] Başlatılıyor...");
+            console.log("🚀 [TITAN v13] Motor Başlatılıyor...");
             
-            // 1. GÜVENLİ DEĞİŞKEN ALIMI
-            const apiKey = process.env.DEEPSEEK_API_KEY;
+            // 1. GÜVENLİ VERİ ALIMI
+            const apiKey = process.env.API_KEY;
+            if (!apiKey) throw new Error("API Anahtarı Yok! Secrets kontrol et.");
+            
             const projectType = process.env.PROJECT_TYPE;
             const userMsg = process.env.USER_MSG;
             
-            if (!apiKey) throw new Error("API Anahtarı bulunamadı!");
+            // 2. CONTEXT OLUŞTURMA (Güvenli Yöntem)
+            let contextData = `### 📂 PROJE TÜRÜ: ${projectType.toUpperCase()}\n\n`;
             
-            // 2. CONTEXT OKUMA (Dosyadan okuma = Hata riskini sıfırlar)
-            let contextData = "";
-            try {
-              if (fs.existsSync('context_data.txt')) {
-                contextData = fs.readFileSync('context_data.txt', 'utf8');
-                console.log(`📚 Bağlam verisi okundu (${contextData.length} karakter).`);
+            // Dosyaları tara (Sadece güvenli uzantılar ve küçük dosyalar)
+            const allowedExts = ['.js', '.json', '.py', '.java', '.kt', '.xml', '.gradle', '.html', '.css', '.md', '.txt', '.yml'];
+            let fileCount = 0;
+            
+            function scan(dir) {
+              if (!fs.existsSync(dir)) return;
+              const files = fs.readdirSync(dir, { withFileTypes: true });
+              for (const file of files) {
+                const fullPath = path.join(dir, file.name);
+                if (file.isDirectory()) {
+                  if (!['node_modules', '.git', 'build', '.gradle', 'venv'].includes(file.name)) scan(fullPath);
+                } else {
+                  if (allowedExts.includes(path.extname(file.name)) || file.name === 'gradlew') {
+                    try {
+                      const stat = fs.statSync(fullPath);
+                      if (stat.size < 20000) { // 20KB altı
+                        const content = fs.readFileSync(fullPath, 'utf8');
+                        contextData += `---START_FILE: ${fullPath}---\n${content}\n---END_FILE---\n\n`;
+                        fileCount++;
+                      }
+                    } catch(e) {}
+                  }
+                }
               }
-            } catch (e) { console.error("Context okuma hatası:", e); }
+            }
+            scan('.');
+            console.log(`📚 ${fileCount} dosya okunup bağlama eklendi.`);
 
             // 3. SYSTEM PROMPT
             const systemPrompt = `
-            Sen DeepSeek v12.0 (Ultimate Stable), dünyanın en iyi otonom yazılımcısısın.
-            Proje Tipi: ${projectType}
+            Sen DeepSeek TITAN, profesyonel bir yazılım mimarısın.
             
-            GÖREVLERİN:
-            1. Kullanıcının isteğini analiz et.
-            2. Aşağıdaki dosya içeriklerine bakarak eksikleri tamamla.
-            3. "Reasoning" yeteneğinle düşün, planla ve uygula.
-            4. Hata yapma, yarım kod bırakma.
+            GÖREVİN:
+            1. Kullanıcının isteğini (${userMsg}) analiz et.
+            2. Mevcut projeyi (Context) incele.
+            3. Hata yapmadan, çalışan, tam kodlar üret.
+            4. "Reasoning" (Düşünme) yeteneğini kullanarak önce planla.
             
-            ÇIKTI FORMATI (ZORUNLU):
-            ---START_FILE: dosya_yolu---
-            [Kod İçeriği]
-            ---END_FILE---
+            FORMAT KURALLARI (BUNA UY):
+            Dosya Oluştur:
+            ---FILENAME: dosya_yolu---
+            [Kod]
+            ---END_OF_FILE---
             
-            ---DELETE_FILE: dosya_yolu---
+            Dosya Sil:
+            ---DELETE: dosya_yolu---
             ---END_DELETE---
             `.trim();
 
-            // 4. API ÇAĞRISI
+            // 4. API İSTEĞİ (DeepSeek Reasoner)
             try {
               const response = await fetch("https://api.deepseek.com/chat/completions", {
                 method: "POST",
@@ -170,7 +177,7 @@ jobs:
                   model: "deepseek-reasoner",
                   messages: [
                     { role: "system", content: systemPrompt },
-                    { role: "user", content: `İSTEK: ${userMsg}\n\nMEVCUT DOSYALAR:\n${contextData}` }
+                    { role: "user", content: `İSTEK: ${userMsg}\n\nCONTEXT:\n${contextData}` }
                   ],
                   stream: false,
                   max_tokens: 8000
@@ -186,133 +193,135 @@ jobs:
               const aiReply = data.choices[0].message.content || "";
               const thinking = data.choices[0].message.reasoning_content || "Düşünce verisi yok.";
               
-              console.log("⚡ AI Cevabı başarıyla alındı.");
+              console.log("⚡ AI Cevabı Alındı.");
               
-              // 5. DOSYA İŞLEME (GÜVENLİ PARSE)
-              const startRegex = /---START_FILE:\s*(.*?)---\n([\s\S]*?)\n---END_FILE---/g;
-              const delRegex = /---DELETE_FILE:\s*(.*?)---\n---END_DELETE---/g;
+              // 5. DOSYA İŞLEME
+              const startRegex = /---FILENAME:\s*(.*?)---\n([\s\S]*?)---END_OF_FILE---/g;
+              const delRegex = /---DELETE:\s*(.*?)---\s*---END_DELETE---/g;
               
               let match;
-              let filesList = [];
+              let createdFiles = [];
               
-              // Dosya Oluşturma
+              // Yazma
               while ((match = startRegex.exec(aiReply)) !== null) {
-                  const fPath = match[1].trim();
-                  const fContent = match[2].trim();
-                  
-                  // Dizin kontrolü
-                  const dir = path.dirname(fPath);
-                  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-                  
-                  fs.writeFileSync(fPath, fContent);
-                  console.log(`✅ Yazıldı: ${fPath}`);
-                  filesList.push(fPath);
+                const fPath = match[1].trim();
+                const fContent = match[2].trim();
+                const dir = path.dirname(fPath);
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                fs.writeFileSync(fPath, fContent);
+                console.log(`✅ Yazıldı: ${fPath}`);
+                createdFiles.push(fPath);
               }
               
-              // Dosya Silme
+              // Silme
               while ((match = delRegex.exec(aiReply)) !== null) {
-                  const fPath = match[1].trim();
-                  if (fs.existsSync(fPath)) {
-                      fs.unlinkSync(fPath);
-                      console.log(`🗑️ Silindi: ${fPath}`);
-                  }
+                const fPath = match[1].trim();
+                if (fs.existsSync(fPath)) fs.unlinkSync(fPath);
               }
               
-              // Çıktıları güvenli şekilde dışarı aktar (Environment File kullanarak)
-              // Doğrudan setOutput kullanmak yerine GITHUB_OUTPUT dosyasına yazıyoruz
-              fs.appendFileSync(process.env.GITHUB_OUTPUT, `thinking_b64=${Buffer.from(thinking).toString('base64')}\n`);
-              fs.appendFileSync(process.env.GITHUB_OUTPUT, `reply_b64=${Buffer.from(aiReply).toString('base64')}\n`);
-              fs.appendFileSync(process.env.GITHUB_OUTPUT, `files=${filesList.join(', ')}\n`);
+              // Çıktıları bir sonraki adıma aktar (Safe Output)
+              // Base64 encode ederek taşıyoruz, bozulmayı önler
+              core.setOutput('thinking_b64', Buffer.from(thinking).toString('base64'));
+              core.setOutput('reply_b64', Buffer.from(aiReply).toString('base64'));
+              core.setOutput('files', createdFiles.join(', '));
 
             } catch (err) {
               console.error("KRİTİK HATA:", err);
               throw err;
             }
 
-      # ========================================================
-      # 5. KODLARI KAYDET (COMMIT)
-      # ========================================================
-      - name: 💾 Kodları Commit Et
+      # ------------------------------------------------------------------
+      # 4. DEĞİŞİKLİKLERİ KAYDET
+      # ------------------------------------------------------------------
+      - name: 💾 Git Commit & Push
         run: |
-          git config --global user.name "DeepSeek v12"
+          git config --global user.name "DeepSeek TITAN"
           git config --global user.email "bot@deepseek.com"
           git add .
-          git commit -m "🤖 DeepSeek v12: Otomatik Geliştirme" || echo "Değişiklik yok."
+          git commit -m "🤖 TITAN: Otomatik Kod Geliştirme" || echo "Değişiklik yok."
           git push
 
-      # ========================================================
-      # 6. DERLEME VE TEST
-      # ========================================================
-      - name: 🏗️ Derleme (Build)
-        id: build_step
+      # ------------------------------------------------------------------
+      # 5. DERLEME VE TEST (OTOMATİK)
+      # ------------------------------------------------------------------
+      - name: 🏗️ Projeyi Derle
+        id: builder
         run: |
           echo "🔨 Derleme Başlıyor..."
+          STATUS="ATLANDI"
           
           if [ "${{ env.PROJECT_TYPE }}" == "android" ]; then
-            echo "📱 Android APK Derleniyor..."
-            ./gradlew assembleDebug --stacktrace
-            echo "BUILD_STATUS=SUCCESS" >> $GITHUB_ENV
-          
+            echo "📱 Android Build..."
+            if ./gradlew assembleDebug --stacktrace; then
+              STATUS="BAŞARILI"
+            else
+              STATUS="BAŞARISIZ"
+            fi
+            
           elif [ "${{ env.PROJECT_TYPE }}" == "nodejs" ]; then
             echo "🟢 Node.js Build..."
             npm install
-            npm run build --if-present
-            echo "BUILD_STATUS=SUCCESS" >> $GITHUB_ENV
+            if npm run build --if-present; then
+              STATUS="BAŞARILI"
+            else
+              STATUS="BAŞARISIZ"
+            fi
             
           elif [ "${{ env.PROJECT_TYPE }}" == "python" ]; then
             echo "🐍 Python Syntax Check..."
-            python3 -m py_compile *.py || true
-            echo "BUILD_STATUS=SUCCESS" >> $GITHUB_ENV
+            if python3 -m py_compile *.py; then
+              STATUS="BAŞARILI"
+            else
+              STATUS="BAŞARISIZ"
+            fi
           fi
+          
+          echo "BUILD_STATUS=$STATUS" >> $GITHUB_ENV
         continue-on-error: true
 
-      # ========================================================
-      # 7. ARTIFACTS (SONUÇ DOSYALARI)
-      # ========================================================
-      - name: 📤 APK Yükle
+      # ------------------------------------------------------------------
+      # 6. SONUÇLARI YÜKLE (APK vb.)
+      # ------------------------------------------------------------------
+      - name: 📤 Artifact Upload (Android)
         if: env.PROJECT_TYPE == 'android'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
 
-      # ========================================================
-      # 8. GÜVENLİ RAPORLAMA
-      # ========================================================
-      - name: 📊 Sonuç Raporu
+      # ------------------------------------------------------------------
+      # 7. RAPORLAMA
+      # ------------------------------------------------------------------
+      - name: 📊 Rapor Yaz
         uses: actions/github-script@v7
         env:
-          THINKING_B64: ${{ steps.deepseek_safe_engine.outputs.thinking_b64 }}
-          REPLY_B64: ${{ steps.deepseek_safe_engine.outputs.reply_b64 }}
-          FILES: ${{ steps.deepseek_safe_engine.outputs.files }}
+          THINKING_B64: ${{ steps.titan_brain.outputs.thinking_b64 }}
+          REPLY_B64: ${{ steps.titan_brain.outputs.reply_b64 }}
+          FILES: ${{ steps.titan_brain.outputs.files }}
           BUILD_STATUS: ${{ env.BUILD_STATUS }}
         with:
           script: |
-            // Değişkenleri güvenli şekilde çöz (Base64 decode)
-            // Bu yöntem 'ReferenceError' ve karakter hatalarını %100 önler.
-            
             const decode = (str) => {
-              try { return Buffer.from(str || '', 'base64').toString('utf-8'); }
-              catch (e) { return "Veri çözülemedi"; }
+              try { return Buffer.from(str || '', 'base64').toString('utf-8'); } catch(e) { return "Veri yok"; }
             };
             
             const thinking = decode(process.env.THINKING_B64);
             const reply = decode(process.env.REPLY_B64);
-            const files = process.env.FILES || "Değişiklik yok";
-            const buildStatus = process.env.BUILD_STATUS || "ATLANDI";
+            const files = process.env.FILES || "Dosya değişmedi.";
+            const buildStatus = process.env.BUILD_STATUS;
             
-            let body = `### 🛡️ DeepSeek v12.0 (Stable) Raporu\n\n`;
+            let body = `### 🏛️ DEEPSEEK TITAN PRO RAPORU\n\n`;
             
-            body += `<details><summary>🧠 <b>Düşünce Süreci (Reasoning Trace)</b></summary>\n\n\`\`\`text\n${thinking.substring(0, 5000)}...\n\`\`\`\n</details>\n\n`;
+            body += `<details><summary>🧠 <b>Modelin Düşünce Süreci (Tıkla)</b></summary>\n\n\`\`\`text\n${thinking.substring(0, 5000)}...\n\`\`\`\n</details>\n\n`;
             
             body += `#### 🛠️ İşlem Özeti:\n`;
-            body += `- **Dosyalar:** ${files}\n`;
-            body += `- **Derleme:** ${buildStatus}\n\n`;
+            body += `- **İşlenen Dosyalar:** ${files}\n`;
+            body += `- **Derleme Durumu:** ${buildStatus == 'BAŞARILI' ? '✅ BAŞARILI' : '❌ ' + buildStatus}\n\n`;
             
-            body += `#### 💬 AI Mesajı:\n${reply.substring(0, 2000)}...\n\n`;
+            body += `#### 💬 Cevap:\n${reply.substring(0, 2000)}...\n\n`;
             
-            if (buildStatus === 'SUCCESS' && process.env.PROJECT_TYPE === 'android') {
-                body += `🎉 **APK Dosyası Hazır!** Yukarıdan indirebilirsiniz.`;
+            if (process.env.PROJECT_TYPE == 'android' && buildStatus == 'BAŞARILI') {
+              body += `🎉 **APK Hazır!** Sayfanın üst kısmındaki 'Artifacts' bölümünden indirebilirsiniz.`;
             }
 
             await github.rest.issues.createComment({
