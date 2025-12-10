@@ -1,4 +1,4 @@
-name: DEEPSEEK ORCHESTRATOR v22.0 (FIXED)
+name: DEEPSEEK OMNI v23.0 (DIRECT PUSH)
 on:
   issues:
     types: [opened, edited]
@@ -18,103 +18,70 @@ permissions:
   actions: write
 
 jobs:
-  orchestrator_fix:
+  omni_direct:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     if: github.actor != 'github-actions[bot]'
     
     steps:
-      # 1. ANA DALI ÇEK
-      - name: 🚀 Ana Depoyu Çek
+      # 1. SAHA HAZIRLIĞI
+      - name: 🚀 Projeyi Çek
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. STRATEJİ VE CONFIG (Node.js ile)
-      - name: 🧠 Strateji Belirle
-        id: strategy
+      # 2. ORTAM ANALİZİ VE HAZIRLIK (Node.js ile)
+      - name: 🧠 Analiz ve Kurulum
+        id: setup
         uses: actions/github-script@v7
-        env:
-          USER_MSG: ${{ github.event.inputs.task || github.event.comment.body || github.event.issue.body }}
         with:
           script: |
-            const userMsg = process.env.USER_MSG;
-            
-            // Branch ismi üret
-            const cleanName = userMsg.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30);
-            const branchName = `feature/${cleanName}-${Date.now().toString().substring(8)}`;
-            core.setOutput('branch_name', branchName);
-            
-            // Ortam Tespiti
             const fs = require('fs');
+            // Proje tipini belirle
             let type = 'general';
-            let build = 'echo "Build yok"';
-            let setup = 'echo "Setup yok"';
+            if (fs.existsSync('build.gradle') || fs.existsSync('app/build.gradle')) type = 'android';
+            else if (fs.existsSync('package.json')) type = 'node';
+            else if (fs.existsSync('requirements.txt')) type = 'python';
             
-            if (fs.existsSync('build.gradle') || fs.existsSync('app/build.gradle')) {
-               type = 'android';
-               setup = 'chmod +x gradlew || true';
-               build = './gradlew assembleDebug';
-            } else if (fs.existsSync('package.json')) {
-               type = 'node';
-               setup = 'npm install';
-               build = 'npm run build --if-present';
-            } else if (fs.existsSync('requirements.txt')) {
-               type = 'python';
-               setup = 'pip install -r requirements.txt';
-               build = 'python -m py_compile *.py';
-            }
-            
+            console.log(`✅ Proje Tipi: ${type}`);
             core.setOutput('env_type', type);
-            core.setOutput('setup_cmd', setup);
-            core.setOutput('build_cmd', build);
 
-      # 3. YENİ DAL OLUŞTUR
-      - name: 🌿 Yeni Dal (Branch) Aç
-        run: |
-          git config --global user.name "DeepSeek Orchestrator"
-          git config --global user.email "bot@deepseek.com"
-          BRANCH="${{ steps.strategy.outputs.branch_name }}"
-          git checkout -b $BRANCH
-          echo "CURRENT_BRANCH=$BRANCH" >> $GITHUB_ENV
-
-      # 4. ORTAM KURULUMU
-      - name: 🛠️ Java Kurulumu (Android)
-        if: steps.strategy.outputs.env_type == 'android'
+      # 3. ORTAM KURULUMLARI (Otomatik)
+      - name: ☕ Java (Android)
+        if: steps.setup.outputs.env_type == 'android'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🟢 Node Kurulumu
-        if: steps.strategy.outputs.env_type == 'node'
+      - name: 🟢 Node.js
+        if: steps.setup.outputs.env_type == 'node'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: 🐍 Python Kurulumu
-        if: steps.strategy.outputs.env_type == 'python'
+      - name: 🐍 Python
+        if: steps.setup.outputs.env_type == 'python'
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 5. KODLAMA MOTORU (Düzeltilmiş)
-      - name: ⚡ DeepSeek Reasoner
+      # 4. DEEPSEEK BEYNİ (KODLAMA)
+      - name: ⚡ DeepSeek Kodlama Motoru
         id: coder
         uses: actions/github-script@v7
-        timeout-minutes: 30 # <--- DÜZELTİLDİ: Yeri burası
+        timeout-minutes: 30
         env:
           API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           USER_MSG: ${{ github.event.inputs.task || github.event.comment.body || github.event.issue.body }}
-          ENV_TYPE: ${{ steps.strategy.outputs.env_type }}
+          ENV_TYPE: ${{ steps.setup.outputs.env_type }}
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
             
-            // HATA DÜZELTİLDİ: Değişken adı 'repoContext' oldu ('context' yasaklı)
+            // Mevcut dosyaları oku (Context)
             let repoContext = "";
-            
             function scan(dir) {
                 if (!fs.existsSync(dir)) return;
                 const files = fs.readdirSync(dir);
@@ -134,16 +101,16 @@ jobs:
             scan('.');
 
             const prompt = `
-            Sen DeepSeek Orchestrator. 
-            Proje Tipi: ${process.env.ENV_TYPE}
+            Sen DeepSeek OMNI. Proje Tipi: ${process.env.ENV_TYPE}
             
             GÖREV:
             Kullanıcı isteğini (${process.env.USER_MSG}) yerine getir.
             
             KURALLAR:
-            1. Tam çalışan kod yaz.
+            1. Tam çalışan, profesyonel kod yaz.
             2. FORMAT: ---FILE:dosya/yolu--- içerik ---END---
-            3. Düşünce zincirini kullan.
+            3. Düşünce zincirini (Reasoning) kullan.
+            4. Asla markdown (backtick) içine alma.
             `;
 
             try {
@@ -164,7 +131,7 @@ jobs:
                 const aiReply = data.choices[0].message.content;
                 const thinking = data.choices[0].message.reasoning_content || "";
                 
-                // Dosya Yazma
+                // Dosyaları Yaz
                 const regex = /---FILE:\s*(.*?)---\n([\s\S]*?)---END---/g;
                 let match;
                 let files = [];
@@ -175,10 +142,11 @@ jobs:
                     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
                     fs.writeFileSync(fpath, content);
                     files.push(fpath);
+                    console.log("Yazıldı:", fpath);
                 }
                 
+                // Base64 ile güvenli aktarım
                 core.setOutput('files', files.join(', '));
-                // Base64 encode (Güvenlik için)
                 core.setOutput('reply', Buffer.from(aiReply).toString('base64'));
                 core.setOutput('thinking', Buffer.from(thinking).toString('base64'));
 
@@ -186,62 +154,60 @@ jobs:
                 core.setFailed(e.message);
             }
 
-      # 6. DERLEME (Build)
-      - name: 🏗️ Derle
+      # 5. DERLEME (Build - Hata Olsa Bile Devam Et)
+      - name: 🏗️ Derleme Kontrolü
+        id: build
         run: |
-          SETUP="${{ steps.strategy.outputs.setup_cmd }}"
-          BUILD="${{ steps.strategy.outputs.build_cmd }}"
+          echo "🔨 Derleme deneniyor..."
           
-          echo "Setup: $SETUP"
-          eval "$SETUP"
-          
-          echo "Build: $BUILD"
-          if eval "$BUILD"; then
-            echo "BUILD_STATUS=SUCCESS" >> $GITHUB_ENV
+          if [ "${{ steps.setup.outputs.env_type }}" == "android" ]; then
+             chmod +x gradlew || true
+             if ./gradlew assembleDebug; then
+               echo "STATUS=BAŞARILI" >> $GITHUB_ENV
+             else
+               echo "STATUS=HATA (Ama kodlar kaydedildi)" >> $GITHUB_ENV
+             fi
+          elif [ "${{ steps.setup.outputs.env_type }}" == "node" ]; then
+             npm install
+             npm run build --if-present
+             echo "STATUS=TAMAMLANDI" >> $GITHUB_ENV
           else
-            echo "BUILD_STATUS=FAILURE" >> $GITHUB_ENV
+             echo "STATUS=DERLEME YOK" >> $GITHUB_ENV
           fi
         continue-on-error: true
 
-      # 7. COMMIT & PUSH
-      - name: 💾 Kaydet ve Pushla
+      # 6. KAYDET (Direct Push to Main)
+      - name: 💾 Kaydet ve Yolla
         run: |
+          git config --global user.name "DeepSeek OMNI"
+          git config --global user.email "bot@deepseek.com"
           git add .
-          git commit -m "🤖 DeepSeek: ${{ github.event.inputs.task || 'Geliştirme' }}"
-          git push origin ${{ env.CURRENT_BRANCH }}
+          git commit -m "🤖 DeepSeek: ${{ github.event.inputs.task || 'Geliştirme' }}" || echo "Değişiklik yok"
+          git push
 
-      # 8. PULL REQUEST
-      - name: 🔀 PR Aç
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const branch = process.env.CURRENT_BRANCH;
-            try {
-              await github.rest.pulls.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `🤖 DeepSeek PR: ${branch}`,
-                body: "DeepSeek tarafından otomatik oluşturulan kodlar.",
-                head: branch,
-                base: 'main'
-              });
-            } catch(e) { console.log("PR zaten var veya hata:", e.message); }
-
-      # 9. RAPOR
+      # 7. RAPOR
       - name: 📊 Rapor
         uses: actions/github-script@v7
+        if: always()
         env:
-          THINKING: ${{ steps.coder.outputs.thinking }}
+          THINKING_B64: ${{ steps.coder.outputs.thinking }}
+          REPLY_B64: ${{ steps.coder.outputs.reply }}
           FILES: ${{ steps.coder.outputs.files }}
-          STATUS: ${{ env.BUILD_STATUS }}
+          STATUS: ${{ env.STATUS }}
         with:
           script: |
-            const thinking = Buffer.from(process.env.THINKING, 'base64').toString('utf-8');
+            const safeDecode = (str) => {
+                try { return Buffer.from(str || '', 'base64').toString('utf-8'); } catch(e) { return "Veri yok"; }
+            };
             
-            let msg = `### 🚀 İşlem Tamamlandı\n`;
+            const thinking = safeDecode(process.env.THINKING_B64);
+            const reply = safeDecode(process.env.REPLY_B64);
+            
+            let msg = `### 🚀 DeepSeek OMNI Raporu\n\n`;
             msg += `**Durum:** ${process.env.STATUS}\n`;
-            msg += `**Dosyalar:** ${process.env.FILES}\n\n`;
-            msg += `<details><summary>Düşünce Süreci</summary>\n\n${thinking.substring(0,3000)}\n</details>`;
+            msg += `**Değişen Dosyalar:** ${process.env.FILES}\n\n`;
+            msg += `<details><summary>🧠 Modelin Düşünce Süreci</summary>\n\n${thinking.substring(0,3000)}\n</details>\n\n`;
+            msg += `**Cevap Özeti:**\n${reply.substring(0, 500)}`;
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
