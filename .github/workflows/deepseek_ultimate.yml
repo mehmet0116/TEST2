@@ -1,4 +1,4 @@
-name: DEEPSEEK ULTIMATE PRO v10.0
+name: DEEPSEEK ULTIMATE PRO v10.1
 on:
   issues:
     types: [opened, edited]
@@ -19,7 +19,6 @@ permissions:
 
 jobs:
   deepseek_heavy_agent:
-    # DÜZELTME 1: Standart runner kullanıldı (16core özel planda çalışır)
     runs-on: ubuntu-latest
     timeout-minutes: 360 # 6 Saat (Büyük derlemeler için)
     if: github.actor != 'github-actions[bot]'
@@ -35,7 +34,7 @@ jobs:
           ref: ${{ github.head_ref || github.ref }}
 
       # ========================================================
-      # ADIM 2: DERİNLEMESİNE ORTAM ANALİZİ (BASH SCRIPT)
+      # ADIM 2: DERİNLEMESİNE ORTAM ANALİZİ
       # ========================================================
       - name: 🔍 PROFESYONEL PROJE ANALİZÖRÜ
         id: analyzer
@@ -85,7 +84,7 @@ jobs:
           echo "TOTAL_FILES=$FILE_COUNT" >> $GITHUB_ENV
 
       # ========================================================
-      # ADIM 3: AĞIR SİSTEM KURULUMLARI (SYSTEM SETUP)
+      # ADIM 3: AĞIR SİSTEM KURULUMLARI
       # ========================================================
       - name: 🛠️ GELİŞTİRME ORTAMI KURULUMU
         id: setup_env
@@ -95,7 +94,6 @@ jobs:
           sudo apt-get install -y curl wget unzip tree jq build-essential
           
           # JAVA KURULUMU (Android için her zaman hazır olsun)
-          echo "☕ Java 17 (Temurin) Kuruluyor..."
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -117,17 +115,17 @@ jobs:
           cache: 'npm'
 
       # ========================================================
-      # ADIM 4: DEEPSEEK BEYNİ (AI ENGINE) - SENİN İSTEDİĞİN GİBİ
+      # ADIM 4: DEEPSEEK BEYNİ (DÜZELTİLMİŞ)
       # ========================================================
       - name: 🧠 DEEPSEEK ULTIMATE ENGINE (Reasoning Mode)
         id: deepseek_engine
         uses: actions/github-script@v7
+        timeout-minutes: 20 # <--- DÜZELTME BURADA: with bloğunun dışına alındı
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PROJECT_TYPE: ${{ env.PROJECT_TYPE }}
           USER_MSG: ${{ github.event.inputs.task || github.event.comment.body || github.event.issue.body }}
         with:
-          timeout-minutes: 20
           script: |
             // --- MODÜLLER ---
             const fs = require('fs');
@@ -213,7 +211,6 @@ jobs:
             `.trim();
 
             // --- 3. API ÇAĞRISI (REASONER MODELİ) ---
-            // DÜZELTME: Senin istediğin 'düşünen' modeli kullanıyoruz.
             console.log("🧠 Düşünme Modeli (DeepSeek-Reasoner) tetikleniyor...");
             
             try {
@@ -245,7 +242,7 @@ jobs:
                 
                 console.log("⚡ Cevap alındı.");
                 
-                // Çıktıları dışarı aktar (Markdown sorunu olmasın diye encode ediyoruz)
+                // Çıktıları dışarı aktar
                 core.setOutput('thinking', Buffer.from(thinking).toString('base64'));
                 
                 // --- 4. DOSYA YAZMA (SCRIPT İÇİNDE) ---
@@ -260,7 +257,6 @@ jobs:
                     const filePath = match[1].trim();
                     const fileContent = match[2].trim();
                     
-                    // Klasör yoksa aç
                     const dir = path.dirname(filePath);
                     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
                     
@@ -343,7 +339,7 @@ jobs:
                 echo "BUILD_RESULT=FAILURE" >> $GITHUB_ENV
             fi
           fi
-        continue-on-error: true # Derleme hatası olsa bile raporu yaz
+        continue-on-error: true
 
       # ========================================================
       # ADIM 7: SONUÇLARI YÜKLE (ARTIFACTS)
@@ -366,13 +362,12 @@ jobs:
             const files = `${{ steps.deepseek_engine.outputs.files }}`;
             const reply = `${{ steps.deepseek_engine.outputs.reply }}`;
             
-            // Düşünce verisini çöz
             let thinking = "Gizli";
             try {
                 thinking = Buffer.from(`${{ steps.deepseek_engine.outputs.thinking }}`, 'base64').toString('utf-8');
             } catch(e) {}
 
-            let body = `### 🧬 DEEPSEEK ULTIMATE PRO v10.0 RAPORU\n\n`;
+            let body = `### 🧬 DEEPSEEK ULTIMATE PRO v10.1 RAPORU\n\n`;
             
             body += `<details><summary>🧠 <b>Modelin Düşünce Süreci (Tıkla)</b></summary>\n\n\`\`\`text\n${thinking.substring(0, 5000)}...\n\`\`\`\n</details>\n\n`;
             
