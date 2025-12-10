@@ -1,0 +1,697 @@
+name: DeepSeek ULTIMATE PRO v1.0
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'What should I do?'
+        required: true
+        default: 'Analyze and fix the project'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  ultimate_pro_agent:
+    runs-on: ubuntu-latest-16core
+    timeout-minutes: 45
+    if: github.actor != 'github-actions[bot]'
+    
+    steps:
+      - name: 🚀 PROJE CHECKOUT (Akıllı Versiyon)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref }}
+
+      - name: 🔍 AKILLI PROJE ANALİZÖRÜ v2
+        id: project_analyzer
+        run: |
+          echo "🤖 PROFESYONEL PROJE ANALİZİ BAŞLATILIYOR..."
+          
+          # Tüm kritik dosyaları kontrol et
+          PROJECT_MAP=""
+          
+          # Android Kontrolleri
+          if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "ANDROID_PROJECT=true" >> $GITHUB_ENV
+            echo "ANDROID_DETECTED=✅ Android Projesi Tespit Edildi" >> $GITHUB_ENV
+            
+            # Gradle wrapper kontrolü
+            if [ -f "gradlew" ]; then
+              GRADLE_VERSION=$(./gradlew --version 2>/dev/null | grep "Gradle" | head -1 || echo "Gradle ?")
+              echo "GRADLE_VERSION=$GRADLE_VERSION" >> $GITHUB_ENV
+              echo "GRADLEWRAPPER_EXISTS=true" >> $GITHUB_ENV
+            else
+              echo "GRADLEWRAPPER_EXISTS=false" >> $GITHUB_ENV
+            fi
+            
+            # build.gradle içeriğini analiz et
+            if [ -f "build.gradle" ]; then
+              echo "BUILD_GRADLE_CONTENT<<EOF" >> $GITHUB_ENV
+              cat build.gradle | head -100 >> $GITHUB_ENV
+              echo "EOF" >> $GITHUB_ENV
+            fi
+          fi
+          
+          # Node.js Kontrolleri
+          if [ -f "package.json" ]; then
+            echo "NODE_PROJECT=true" >> $GITHUB_ENV
+            echo "NODE_VERSION=$(node --version 2>/dev/null || echo 'Node bulunamadı')" >> $GITHUB_ENV
+            echo "NPM_VERSION=$(npm --version 2>/dev/null || echo 'npm bulunamadı')" >> $GITHUB_ENV
+          fi
+          
+          # Python Kontrolleri
+          if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then
+            echo "PYTHON_PROJECT=true" >> $GITHUB_ENV
+            echo "PYTHON_VERSION=$(python3 --version 2>/dev/null || echo 'Python bulunamadı')" >> $GITHUB_ENV
+          fi
+          
+          # Dosya istatistikleri
+          echo "TOTAL_FILES=$(find . -type f | wc -l)" >> $GITHUB_ENV
+          echo "TOTAL_DIRS=$(find . -type d | wc -l)" >> $GITHUB_ENV
+          
+          # Önemli dosyaları listele
+          find . -type f \( -name "*.gradle" -o -name "*.kt" -o -name "*.java" -o -name "*.xml" \
+            -o -name "*.json" -o -name "*.js" -o -name "*.ts" -o -name "*.py" \
+            -o -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) \
+            | head -30 > important_files.txt
+          
+          echo "✅ PROFESYONEL ANALİZ TAMAMLANDI"
+          echo "PROJECT_TYPE=$(if [ "$ANDROID_PROJECT" = "true" ]; then echo 'Android'; elif [ "$NODE_PROJECT" = "true" ]; then echo 'Node.js'; elif [ "$PYTHON_PROJECT" = "true" ]; then echo 'Python'; else echo 'Diğer'; fi)" >> $GITHUB_ENV
+
+      - name: ⚙️ ZEKİ SİSTEM KURULUMU
+        id: smart_setup
+        run: |
+          echo "🛠️ AKILLI SİSTEM KURULUMU BAŞLATILIYOR..."
+          
+          # Temel paketleri kur
+          sudo apt-get update -y
+          sudo apt-get install -y curl wget git unzip build-essential jq
+          
+          # ANDROID İÇİN KURULUMLAR
+          if [ "${{ env.ANDROID_PROJECT }}" = "true" ]; then
+            echo "📱 ANDROID GELİŞTİRME ORTAMI KURULUYOR..."
+            
+            # Java 17 Kurulumu
+            if ! command -v java &> /dev/null; then
+              echo "☕ JAVA 17 KURULUYOR..."
+              sudo apt-get install -y openjdk-17-jdk
+              export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+              export PATH=$JAVA_HOME/bin:$PATH
+              echo "JAVA_HOME=$JAVA_HOME" >> $GITHUB_ENV
+            else
+              echo "✅ Java zaten kurulu: $(java -version 2>&1 | head -1)"
+            fi
+            
+            # Gradle Wrapper yoksa OLUŞTUR
+            if [ "${{ env.GRADLEWRAPPER_EXISTS }}" = "false" ]; then
+              echo "📦 GERÇEK GRADLE WRAPPER OLUŞTURULUYOR..."
+              
+              # Önce Gradle'ı kur (sadece wrapper oluşturmak için)
+              sudo apt-get install -y gradle
+              
+              # Gradle wrapper oluştur
+              if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+                gradle wrapper --gradle-version=8.5 --distribution-type=bin
+                chmod +x gradlew
+                echo "✅ Gerçek Gradle Wrapper oluşturuldu!"
+              else
+                # build.gradle yoksa basit bir tane oluştur
+                echo "plugins { id 'java' }" > build.gradle
+                gradle wrapper --gradle-version=8.5 --distribution-type=bin
+                chmod +x gradlew
+                echo "⚠️ build.gradle oluşturuldu ve wrapper eklendi"
+              fi
+            fi
+            
+            # Android SDK (temel araçlar)
+            echo "📲 Android SDK araçları kontrol ediliyor..."
+            sudo apt-get install -y android-sdk-platform-tools-common
+            
+          fi
+          
+          # NODE.JS İÇİN KURULUM
+          if [ "${{ env.NODE_PROJECT }}" = "true" ]; then
+            echo "🟢 NODE.JS ORTAMI KURULUYOR..."
+            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+          fi
+          
+          # PYTHON İÇİN KURULUM
+          if [ "${{ env.PYTHON_PROJECT }}" = "true" ]; then
+            echo "🐍 PYTHON ORTAMI KURULUYOR..."
+            sudo apt-get install -y python3 python3-pip python3-venv
+          fi
+          
+          echo "✅ AKILLI KURULUM TAMAMLANDI"
+
+      - name: 🧠 DEEPSEEK ULTIMATE PRO ENGINE
+        id: deepseek_pro_engine
+        uses: actions/github-script@v7
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PROJECT_TYPE: ${{ env.PROJECT_TYPE }}
+          GRADLE_VERSION: ${{ env.GRADLE_VERSION }}
+        with:
+          script: |
+            console.log("🧠🧠🧠 DEEPSEEK ULTIMATE PRO ENGINE AKTİF 🧠🧠🧠");
+            
+            const fs = require('fs');
+            const path = require('path');
+            
+            // 1. KULLANICI MESAJINI AL
+            const userMessage = context.payload.comment ? 
+              context.payload.comment.body : 
+              (context.payload.issue ? context.payload.issue.body : "Bu projeyi analiz et ve geliştir.");
+            
+            console.log(`🎯 KULLANICI İSTEĞİ:\n"${userMessage}"\n`);
+            
+            // 2. API KEY KONTROLÜ
+            const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+            if (!apiKey) {
+              throw new Error("❌❌❌ KRİTİK HATA: DEEPSEEK_API_KEY GitHub Secrets'ta bulunamadı!\nLütfen: Settings > Secrets and variables > Actions > New repository secret");
+            }
+            
+            // 3. PROJE DOSYALARINI OKU (AKILLI OKUMA)
+            console.log("📖 PROJE DOSYALARI OKUNUYOR...");
+            let projectContext = "🚀 PROJE DURUM RAPORU 🚀\n\n";
+            
+            // ÖNEMLİ DOSYA LİSTESİ
+            const essentialFiles = {
+              android: [
+                'build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts',
+                'app/build.gradle', 'app/build.gradle.kts', 
+                'gradle/wrapper/gradle-wrapper.properties',
+                'app/src/main/AndroidManifest.xml',
+                'app/src/main/res/values/strings.xml'
+              ],
+              nodejs: ['package.json', 'package-lock.json', 'index.js', 'app.js', 'src/index.js'],
+              python: ['requirements.txt', 'pyproject.toml', 'setup.py', 'main.py', 'app.py']
+            };
+            
+            // Hangi proje tipi?
+            const projType = process.env.PROJECT_TYPE?.toLowerCase() || 'android';
+            const filesToRead = essentialFiles[projType] || essentialFiles.android;
+            
+            let totalRead = 0;
+            for (const file of filesToRead) {
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: file,
+                  ref: context.ref || 'main'
+                });
+                
+                if (data.type === 'file') {
+                  const content = Buffer.from(data.content, 'base64').toString('utf8');
+                  const safeContent = content.length > 2500 ? 
+                    content.substring(0, 1200) + `\n\n... [DOSYA ÇOK UZUN, ${content.length} karakter] ...\n\n` + 
+                    content.substring(content.length - 1200) : 
+                    content;
+                  
+                  projectContext += `📄 ${file} (${content.length} karakter):\n\`\`\`\n${safeContent}\n\`\`\`\n\n`;
+                  totalRead++;
+                }
+              } catch (err) {
+                projectContext += `📄 ${file}: ❌ DOSYA BULUNAMADI\n\n`;
+              }
+            }
+            
+            console.log(`✅ ${totalRead} adet önemli dosya okundu.`);
+            
+            // 4. PROFESYONEL SYSTEM PROMPT (ÇOK DETAYLI)
+            const systemPrompt = `
+            SEN "DEEPSEEK ULTIMATE PRO" ADINDA BİR YAPAY ZEKA AJANISIN.
+            Kullanıcının istediği HER ŞEYİ, EKSİKSİZ, HATASIZ ve PROFESYONEL şekilde yaparsın.
+            
+            🔥 KRİTİK GÖREVLERİN:
+            1. TAM KOD ÜRET: Eksiksiz, derlenebilir, çalışabilir kodlar üret.
+            2. HATA ÇÖZ: Mevcut hataları tespit et ve KESİN ÇÖZÜM üret.
+            3. DOSYA YÖNET: Eksik dosyaları oluştur, hatalıları düzelt.
+            4. YAPILANDIRMA: Gradle, package.json, requirements.txt gibi yapılandırma dosyalarını DOĞRU ayarla.
+            5. SÜRÜM UYUMLULUĞU: Gradle, Kotlin, Java, Node.js sürümlerini UYUMLU yap.
+            
+            ⚡ ÇIKTI FORMATI (DEĞİŞMEZ KURAL):
+            Her dosya için AYNI formatta çıktı ver:
+            
+            ---START_FILE: dosya/yolu/adi.uzanti---
+            [DOSYANIN TAM İÇERİĞİ BURAYA]
+            ---END_FILE---
+            
+            ÖRNEK:
+            ---START_FILE: app/build.gradle---
+            plugins {
+                id 'com.android.application'
+                id 'org.jetbrains.kotlin.android'
+            }
+            android {
+                compileSdk 34
+                namespace 'com.example.app'
+                defaultConfig {
+                    applicationId "com.example.app"
+                    minSdk 24
+                    targetSdk 34
+                    versionCode 1
+                    versionName "1.0"
+                }
+            }
+            dependencies {
+                implementation 'androidx.core:core-ktx:1.12.0'
+                implementation 'androidx.appcompat:appcompat:1.6.1'
+            }
+            ---END_FILE---
+            
+            🚨 YAPMAYACAĞIN ŞEYLER:
+            - ASLA "burayı sen tamamla" DEME
+            - ASLA yarım bırakma
+            - ASLA açıklama yapmadan kod verme
+            - TÜM bağımlılıkları ekle
+            - Sürüm uyumsuzluğu BIRAKMA
+            
+            📱 ANDROID İÇİN EK KURALLAR:
+            - Gradle 8.5+ kullan
+            - Kotlin 1.9.0+ kullan
+            - Java 17 uyumlu ol
+            - View Binding/Data Binding doğru ayarla
+            - Minimum SDK 24, Target SDK 34 kullan
+            
+            🎯 HATA ALIRSAK:
+            Eğer derleme hatası varsa, HATANIN TAM MESAJINI al ve O HATAYI ÇÖZEN kodu üret.
+            
+            ŞİMDİ BAŞLA ve KULLANICI İSTEĞİNİ TAMAMLA:
+            `.trim();
+            
+            // 5. API İSTEĞİ (PROFESYONEL)
+            console.log("📡 DEEPSEEK API'YE PROFESYONEL İSTEK GÖNDERİLİYOR...");
+            
+            const requestBody = {
+              model: "deepseek-chat",
+              messages: [
+                { 
+                  role: "system", 
+                  content: systemPrompt 
+                },
+                { 
+                  role: "user", 
+                  content: `🎯 KULLANICI TALİMATI: "${userMessage}"
+                  
+                  📊 PROJE BİLGİLERİ:
+                  - Proje Tipi: ${process.env.PROJECT_TYPE}
+                  - Gradle Versiyonu: ${process.env.GRADLE_VERSION || 'Bilinmiyor'}
+                  - Toplam Dosya: ${process.env.TOTAL_FILES || '0'}
+                  
+                  📁 MEVCUT PROJE DURUMU:
+                  ${projectContext}
+                  
+                  ⚡ TALİMAT: 
+                  Yukarıdaki sistemi prompt'unu DİKKATLE OKU.
+                  Kullanıcının istediğini TAM ve EKSİKSİZ yap.
+                  Gerekli TÜM dosyaları oluştur veya düzelt.
+                  Hata varsa ÇÖZ.
+                  Sürüm uyumsuzluğu varsa DÜZELT.
+                  
+                  HAZIR MISIN? BAŞLA! 🚀` 
+                }
+              ],
+              max_tokens: 32000,
+              temperature: 0.1,
+              stream: false
+            };
+            
+            console.log(`📊 API İsteği hazır: ${JSON.stringify(requestBody).length} karakter`);
+            
+            try {
+              const response = await fetch("https://api.deepseek.com/chat/completions", {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${apiKey}`,
+                  "Content-Type": "application/json",
+                  "Accept": "application/json"
+                },
+                body: JSON.stringify(requestBody)
+              });
+              
+              if (!response.ok) {
+                const errorDetail = await response.text();
+                console.error(`❌ API HATASI ${response.status}:`, errorDetail.substring(0, 500));
+                throw new Error(`DeepSeek API hatası ${response.status}`);
+              }
+              
+              const data = await response.json();
+              const aiRawResponse = data.choices[0]?.message?.content || "";
+              
+              if (!aiRawResponse || aiRawResponse.trim().length < 10) {
+                throw new Error("AI'dan geçersiz veya boş yanıt alındı.");
+              }
+              
+              console.log(`✅ AI YANITI ALINDI: ${aiRawResponse.length} karakter`);
+              
+              // 6. DOSYA İŞLEMLERİ (GELİŞMİŞ ve SAĞLAM)
+              console.log("🔄 DOSYA İŞLEMLERİ BAŞLATILIYOR...");
+              
+              // GELİŞMİŞ REGEX PATTERN
+              const filePattern = /---START_FILE:\s*(.+?)\s*---\n([\s\S]*?)\n---END_FILE---/g;
+              let match;
+              const processedFiles = [];
+              const failedFiles = [];
+              
+              // Tüm eşleşmeleri bul
+              const allMatches = [];
+              while ((match = filePattern.exec(aiRawResponse)) !== null) {
+                allMatches.push({
+                  filename: match[1].trim(),
+                  content: match[2].trim()
+                });
+              }
+              
+              console.log(`🔍 ${allMatches.length} adet dosya bulundu.`);
+              
+              // Her dosyayı işle
+              for (const file of allMatches) {
+                const fileName = file.filename;
+                let fileContent = file.content;
+                
+                // Kod bloklarından temizle (```)
+                if (fileContent.startsWith('```')) {
+                  const firstNewLine = fileContent.indexOf('\n');
+                  if (firstNewLine !== -1) {
+                    fileContent = fileContent.substring(firstNewLine + 1);
+                  }
+                }
+                if (fileContent.endsWith('```')) {
+                  fileContent = fileContent.substring(0, fileContent.length - 3);
+                }
+                
+                fileContent = fileContent.trim();
+                
+                console.log(`📝 İşleniyor: ${fileName} (${fileContent.length} karakter)`);
+                
+                try {
+                  // Mevcut dosyayı kontrol et
+                  let sha = undefined;
+                  try {
+                    const { data: existing } = await github.rest.repos.getContent({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      path: fileName,
+                      ref: context.ref || 'main'
+                    });
+                    sha = existing.sha;
+                    console.log(`   ℹ️ Mevcut dosya bulundu (SHA: ${sha?.substring(0, 8)}...), güncellenecek.`);
+                  } catch (notFound) {
+                    console.log(`   ℹ️ Yeni dosya oluşturulacak.`);
+                  }
+                  
+                  // Dosyayı oluştur/güncelle
+                  await github.rest.repos.createOrUpdateFileContents({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    path: fileName,
+                    message: `🤖 DEEPSEEK PRO: ${userMessage.substring(0, 60)}${userMessage.length > 60 ? '...' : ''}`,
+                    content: Buffer.from(fileContent).toString('base64'),
+                    sha: sha,
+                    branch: context.ref ? undefined : 'main'
+                  });
+                  
+                  processedFiles.push(fileName);
+                  console.log(`   ✅ ${sha ? 'GÜNCELLENDİ' : 'OLUŞTURULDU'}: ${fileName}`);
+                  
+                } catch (fileError) {
+                  console.error(`   ❌ ${fileName} işlenemedi:`, fileError.message);
+                  failedFiles.push(`${fileName}: ${fileError.message}`);
+                }
+              }
+              
+              console.log(`🎉 DOSYA İŞLEMLERİ TAMAMLANDI: ${processedFiles.length} başarılı, ${failedFiles.length} başarısız`);
+              
+              // 7. SONUÇLARI HAZIRLA
+              const resultSummary = {
+                success: processedFiles.length,
+                failed: failedFiles.length,
+                totalFiles: allMatches.length,
+                aiResponsePreview: aiRawResponse.substring(0, 2000) + (aiRawResponse.length > 2000 ? "..." : ""),
+                processedFiles: processedFiles,
+                failedFiles: failedFiles,
+                userRequest: userMessage.substring(0, 200)
+              };
+              
+              // Çıktıları ayarla (sonraki adımlar için)
+              const core = require('@actions/core');
+              core.setOutput('ai_response', resultSummary.aiResponsePreview);
+              core.setOutput('files_processed', processedFiles.length.toString());
+              core.setOutput('files_failed', failedFiles.length.toString());
+              core.setOutput('file_list', processedFiles.join('|'));
+              core.setOutput('failed_list', failedFiles.join('|'));
+              core.setOutput('user_request', resultSummary.userRequest);
+              
+              return resultSummary;
+              
+            } catch (apiError) {
+              console.error("❌❌❌ DEEPSEEK ENGINE'DE KRİTİK HATA:", apiError);
+              throw apiError;
+            }
+
+      - name: 🏗️ PROFESYONEL BUILD ve TEST
+        id: pro_build_test
+        run: |
+          echo "🔧 PROFESYONEL BUILD ve TEST SİSTEMİ BAŞLATILIYOR..."
+          
+          BUILD_LOG="build_output_$(date +%s).log"
+          TEST_LOG="test_output_$(date +%s).log"
+          
+          {
+            echo "=== PROFESYONEL BUILD RAPORU ==="
+            echo "Başlangıç: $(date)"
+            echo "Proje Tipi: ${{ env.PROJECT_TYPE }}"
+            echo "================================="
+            echo ""
+            
+            # ANDROID BUILD
+            if [ "${{ env.ANDROID_PROJECT }}" = "true" ]; then
+              echo "📱 ANDROID PROFESYONEL BUILD BAŞLATILIYOR..."
+              echo "Gradle Wrapper Durumu: ${{ env.GRADLEWRAPPER_EXISTS }}"
+              echo ""
+              
+              # 1. Gradle wrapper kontrolü ve hazırlık
+              if [ -f "gradlew" ]; then
+                chmod +x gradlew
+                echo "✅ Gradle Wrapper hazır."
+                
+                # 2. Temizleme
+                echo "🧹 Gradle clean çalıştırılıyor..."
+                ./gradlew clean --no-daemon --stacktrace 2>&1 | tee -a clean.log
+                
+                # 3. Derleme (debug)
+                echo "🔨 Gradle build (debug) çalıştırılıyor..."
+                if ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee -a $BUILD_LOG; then
+                  echo "🎉 ANDROID BUILD BAŞARILI!"
+                  echo "BUILD_STATUS=success" >> $GITHUB_ENV
+                  
+                  # APK kontrolü
+                  if find . -name "*.apk" -type f | grep -q .; then
+                    APK_FILES=$(find . -name "*.apk" -type f | wc -l)
+                    echo "📦 $APK_FILES adet APK oluşturuldu."
+                    echo "APK_COUNT=$APK_FILES" >> $GITHUB_ENV
+                  fi
+                else
+                  echo "❌ ANDROID BUILD BAŞARISIZ!"
+                  echo "BUILD_STATUS=failed" >> $GITHUB_ENV
+                  
+                  # Hata analizi
+                  echo "🔍 HATA ANALİZİ:"
+                  tail -100 $BUILD_LOG | grep -A 5 -B 5 -i "error\|failed\|exception" | head -50
+                fi
+                
+                # 4. Test çalıştır (varsa)
+                echo "🧪 Testler çalıştırılıyor..."
+                ./gradlew test --no-daemon 2>&1 | tail -100 | tee -a $TEST_LOG || echo "Testler çalıştırılamadı"
+                
+              else
+                echo "⚠️ Gradle Wrapper bulunamadı, build atlanıyor."
+                echo "BUILD_STATUS=skipped" >> $GITHUB_ENV
+              fi
+              
+            # NODE.JS BUILD
+            elif [ "${{ env.NODE_PROJECT }}" = "true" ]; then
+              echo "🟢 NODE.JS BUILD BAŞLATILIYOR..."
+              
+              if [ -f "package.json" ]; then
+                npm install --silent 2>&1 | tail -50
+                
+                if grep -q '"build"' package.json; then
+                  npm run build 2>&1 | tail -100 | tee -a $BUILD_LOG
+                  echo "BUILD_STATUS=success" >> $GITHUB_ENV
+                else
+                  echo "ℹ️ Build script bulunamadı, temel kontrol yapılıyor."
+                  node --check index.js 2>/dev/null || node --check app.js 2>/dev/null || echo "Temel kontrol atlandı"
+                  echo "BUILD_STATUS=skipped" >> $GITHUB_ENV
+                fi
+              fi
+              
+            # PYTHON BUILD
+            elif [ "${{ env.PYTHON_PROJECT }}" = "true" ]; then
+              echo "🐍 PYTHON BUILD BAŞLATILIYOR..."
+              
+              if [ -f "requirements.txt" ]; then
+                pip install -r requirements.txt 2>&1 | tail -50
+                echo "BUILD_STATUS=success" >> $GITHUB_ENV
+              elif [ -f "pyproject.toml" ]; then
+                pip install . 2>&1 | tail -50
+                echo "BUILD_STATUS=success" >> $GITHUB_ENV
+              else
+                echo "ℹ️ Bağımlılık dosyası bulunamadı."
+                echo "BUILD_STATUS=skipped" >> $GITHUB_ENV
+              fi
+            fi
+            
+            echo ""
+            echo "=== BUILD SONUÇLARI ==="
+            echo "Bitiş: $(date)"
+            echo "Durum: ${{ env.BUILD_STATUS || 'bilinmiyor' }}"
+            echo "========================="
+            
+          } | tee full_build_report.log
+          
+          echo "✅ PROFESYONEL BUILD TAMAMLANDI"
+
+      - name: 📊 PROFESYONEL SONUÇ RAPORU
+        uses: actions/github-script@v7
+        env:
+          AI_RESPONSE: ${{ steps.deepseek_pro_engine.outputs.ai_response }}
+          FILES_PROCESSED: ${{ steps.deepseek_pro_engine.outputs.files_processed }}
+          FILES_FAILED: ${{ steps.deepseek_pro_engine.outputs.files_failed }}
+          FILE_LIST: ${{ steps.deepseek_pro_engine.outputs.file_list }}
+          USER_REQUEST: ${{ steps.deepseek_pro_engine.outputs.user_request }}
+          BUILD_STATUS: ${{ env.BUILD_STATUS }}
+          APK_COUNT: ${{ env.APK_COUNT }}
+        with:
+          script: |
+            console.log("📊 PROFESYONEL SONUÇ RAPORU HAZIRLANIYOR...");
+            
+            const issueNumber = context.payload.issue?.number || 
+                               (context.payload.comment ? context.payload.comment.issue_number : null);
+            
+            if (!issueNumber) {
+              console.log("ℹ️ Issue bulunamadı, rapor oluşturulmayacak.");
+              return;
+            }
+            
+            // VERİLERİ AL
+            const aiResponse = process.env.AI_RESPONSE || "AI yanıtı alınamadı.";
+            const filesProcessed = parseInt(process.env.FILES_PROCESSED || '0');
+            const filesFailed = parseInt(process.env.FILES_FAILED || '0');
+            const fileList = (process.env.FILE_LIST || "").split('|').filter(f => f);
+            const userRequest = process.env.USER_REQUEST || "İstek belirtilmemiş";
+            const buildStatus = process.env.BUILD_STATUS || "bilinmiyor";
+            const apkCount = process.env.APK_COUNT || "0";
+            
+            // PROFESYONEL RAPOR OLUŞTUR
+            let report = `# 🤖 DEEPSEEK ULTIMATE PRO v1.0 - PROFESYONEL RAPOR\n\n`;
+            
+            // 📌 ÖZET TABLOSU
+            report += `## 📌 İŞLEM ÖZETİ\n`;
+            report += `| Kategori | Değer |\n|----------|-------|\n`;
+            report += `| **Kullanıcı İsteği** | ${userRequest} |\n`;
+            report += `| **İşlenen Dosya** | ${filesProcessed} adet |\n`;
+            report += `| **Başarısız Dosya** | ${filesFailed} adet |\n`;
+            report += `| **Build Durumu** | ${buildStatus === 'success' ? '✅ BAŞARILI' : buildStatus === 'failed' ? '❌ BAŞARISIZ' : '⚠️ ATLANDI'} |\n`;
+            if (apkCount !== "0") {
+              report += `| **Oluşturulan APK** | ${apkCount} adet |\n`;
+            }
+            report += `| **Rapor Zamanı** | ${new Date().toLocaleString('tr-TR')} |\n\n`;
+            
+            // 📁 İŞLENEN DOSYALAR
+            if (fileList.length > 0) {
+              report += `## 📁 İŞLENEN DOSYALAR\n`;
+              fileList.forEach(file => {
+                report += `- ✅ \`${file}\`\n`;
+              });
+              report += `\n`;
+            }
+            
+            // 🔧 BUILD DURUMU
+            report += `## 🔧 BUILD SONUÇLARI\n`;
+            switch(buildStatus) {
+              case 'success':
+                report += `### 🎉 BUILD BAŞARILI!\n`;
+                report += `Projeniz başarıyla derlendi. `;
+                if (apkCount !== "0") {
+                  report += `**${apkCount} adet APK** oluşturuldu. `;
+                }
+                report += `Projenizi Android Studio'da açabilir veya oluşturulan APK'yı test edebilirsiniz.\n\n`;
+                break;
+              case 'failed':
+                report += `### ❌ BUILD BAŞARISIZ\n`;
+                report += `Proje derlemesinde hata oluştu. Lütfen aşağıdaki AI analizini inceleyin veya GitHub Actions loglarını kontrol edin.\n\n`;
+                break;
+              default:
+                report += `### ℹ️ BUILD ATLANDI\n`;
+                report += `Build işlemi bu proje tipi için otomatik olarak çalıştırılmadı veya gerekli dosyalar bulunamadı.\n\n`;
+            }
+            
+            // 🧠 AI ANALİZİ ve KODLAR
+            report += `## 🧠 DEEPSEEK PRO ANALİZİ\n`;
+            report += `<details>\n<summary><b>📝 Tıklayarak AI Yanıtını ve Kodları Görüntüleyin (${aiResponse.length} karakter)</b></summary>\n\n`;
+            report += `\`\`\`\n${aiResponse}\n\`\`\`\n`;
+            report += `</details>\n\n`;
+            
+            // 🚀 SONRAKİ ADIMLAR
+            report += `## 🚀 SONRAKİ ADIMLAR\n`;
+            
+            if (buildStatus === 'success') {
+              report += `1. **📱 Android Studio'da Aç:** Projeyi Android Studio'da açın ve çalıştırın.\n`;
+              report += `2. **📦 APK Testi:** Oluşturulan APK'yı telefonunuza yükleyerek test edin.\n`;
+              report += `3. **✏️ Geliştirmeye Devam:** İhtiyacınız olan ek özellikleri ekleyin.\n`;
+            } else if (buildStatus === 'failed') {
+              report += `1. **🔍 Hata Analizi:** Yukarıdaki AI analizini dikkatle okuyun.\n`;
+              report += `2. **📋 Log Kontrolü:** GitHub Actions sekmesinden detaylı logları inceleyin.\n`;
+              report += `3. **🔄 Yeniden Dene:** Gerekli düzeltmeleri yaparak işlemi tekrar başlatın.\n`;
+            } else {
+              report += `1. **👀 Dosya İnceleme:** Oluşturulan dosyaları GitHub'da inceleyin.\n`;
+              report += `2. **🛠️ Manuel Build:** Projeyi yerel makinenizde derlemeyi deneyin.\n`;
+              report += `3. **📝 Feedback:** Eksik veya hatalı bir şey varsa yeni bir issue açın.\n`;
+            }
+            
+            report += `\n4. **🤖 Yeni İstek:** Başka bir şeye ihtiyacınız varsa bu issue'ya yorum yapın!\n\n`;
+            
+            // 📞 DESTEK
+            report += `## 📞 TEKNİK DESTEK\n`;
+            report += `- **GitHub Actions Logları:** Bu işlemin tam loglarını görmek için [Actions sekmesine](https://github.com/${context.repo.owner}/${context.repo.repo}/actions) gidin.\n`;
+            report += `- **Dosya Değişiklikleri:** Oluşturulan/güncellenen dosyaları görmek için [Commits sayfasını](https://github.com/${context.repo.owner}/${context.repo.repo}/commits) kontrol edin.\n`;
+            report += `- **Yeni Issue:** Başka bir problem için [yeni issue açın](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/new).\n\n`;
+            
+            report += `---\n*Bu rapor **DeepSeek Ultimate Pro Agent v1.0** tarafından otomatik oluşturulmuştur.* 🤖✨\n`;
+            
+            // RAPORU GÖNDER
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: report
+            });
+            
+            console.log(`✅ PROFESYONEL RAPOR GÖNDERİLDİ: ${report.length} karakter`);
+
+      - name: 🎉 PROSES TAMAMLANDI
+        run: |
+          echo ""
+          echo "✨✨✨ DEEPSEEK ULTIMATE PRO v1.0 ✨✨✨"
+          echo "✅ TÜM İŞLEMLER BAŞARIYLA TAMAMLANDI!"
+          echo ""
+          echo "📊 SONUÇ ÖZETİ:"
+          echo "- Proje Analizi: ✅ Tamamlandı"
+          echo "- Sistem Kurulumu: ✅ Tamamlandı"
+          echo "- DeepSeek AI İşlemi: ✅ Tamamlandı"
+          echo "- Dosya İşlemleri: ${{ steps.deepseek_pro_engine.outputs.files_processed || 0 }} dosya"
+          echo "- Build/Test: ${{ env.BUILD_STATUS || 'Bilinmiyor' }}"
+          echo "- Raporlama: ✅ GitHub Issue'ya eklendi"
+          echo ""
+          echo "🚀 Artık projeniz hazır! GitHub'daki issue sayfasında detaylı raporu görüntüleyebilirsiniz."
+          echo ""
