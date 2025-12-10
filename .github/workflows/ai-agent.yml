@@ -1,0 +1,394 @@
+name: 🤖 UNIVERSAL AI CODE AGENT
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'AI Agent Komutu'
+        required: true
+        default: 'Projeyi analiz et ve geliştir'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  universal_ai_agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.actor != 'github-actions[bot]'
+    
+    steps:
+      # 1. PROJEYİ AL
+      - name: 📥 Projeyi Checkout Et
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: false
+
+      # 2. HER ŞEYİ YAPAN AI MOTORU
+      - name: 🧠 UNIVERSAL AI MOTORU
+        id: ai_engine
+        uses: actions/github-script@v7
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          USER_COMMAND: ${{ github.event.inputs.command || github.event.comment.body || github.event.issue.body }}
+        with:
+          script: |
+            const core = require('@actions/core');
+            console.log('🚀 UNIVERSAL AI AGENT BAŞLATILIYOR...');
+            
+            // 1. KULLANICI KOMUTUNU AL
+            const userCommand = process.env.USER_COMMAND || "Bu projeyi geliştir";
+            console.log(`📝 KOMUT: "${userCommand}"`);
+            
+            // 2. API KEY KONTROLÜ
+            const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+            if (!apiKey) {
+              core.setFailed('❌ DEEPSEEK_API_KEY GitHub Secrets\'ta yok!');
+              return;
+            }
+            
+            // 3. PROJEDEKİ TÜM ÖNEMLİ DOSYALARI BUL VE OKU
+            console.log('🔍 Proje dosyaları taranıyor...');
+            
+            // Önce kök dizindeki dosyaları bul
+            const getRootFiles = async () => {
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: ''
+                });
+                return data.filter(item => item.type === 'file').map(f => f.name);
+              } catch (e) {
+                return [];
+              }
+            };
+            
+            const rootFiles = await getRootFiles();
+            console.log(`📁 Kök dosyalar: ${rootFiles.join(', ')}`);
+            
+            // Proje tipini AI'nın kendisi anlasın diye sadece bazı dosyaları oku
+            const readFileContent = async (filePath) => {
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: filePath
+                });
+                if (data.encoding === 'base64') {
+                  return Buffer.from(data.content, 'base64').toString('utf-8');
+                }
+              } catch (e) {}
+              return null;
+            };
+            
+            // Projede hangi dil/teknoloji olduğunu anlamak için kritik dosyalar
+            const criticalFiles = [
+              ...rootFiles.filter(f => 
+                f.endsWith('.json') || 
+                f.endsWith('.js') || f.endsWith('.ts') || f.endsWith('.jsx') || f.endsWith('.tsx') ||
+                f.endsWith('.py') || f.endsWith('.java') || f.endsWith('.kt') || f.endsWith('.cpp') ||
+                f.endsWith('.cs') || f.endsWith('.go') || f.endsWith('.rs') || f.endsWith('.php') ||
+                f.endsWith('.rb') || f.endsWith('.swift') || f.endsWith('.dart') ||
+                f.endsWith('.html') || f.endsWith('.css') || f.endsWith('.scss') ||
+                f.endsWith('.xml') || f.endsWith('.yaml') || f.endsWith('.yml') ||
+                f === 'package.json' || f === 'requirements.txt' || f === 'pom.xml' ||
+                f === 'build.gradle' || f === 'Cargo.toml' || f === 'go.mod' ||
+                f === 'Dockerfile' || f === 'docker-compose.yml' || f === 'Makefile'
+              )
+            ].slice(0, 15); // İlk 15 dosya
+            
+            let projectContext = "📂 PROJE DOSYALARI:\n\n";
+            for (const file of criticalFiles) {
+              const content = await readFileContent(file);
+              if (content) {
+                projectContext += `📄 ${file}:\n\`\`\`\n${content.substring(0, 1000)}${content.length > 1000 ? '\n... (devamı var)' : ''}\n\`\`\`\n\n`;
+              }
+            }
+            
+            // 4. AI'YA GÖNDERİLECEK MÜKEMMEL PROMPT
+            const systemPrompt = `
+# 🚀 EVRENSEL KOD ÜRETİCİ - SENARYO TALİMATLARI
+
+Sen "Universal Code Generator" adında her türlü kodlama projesini otomatik oluşturabilen bir AI ajanısın.
+
+## 🎯 TEMEL PRENSİPLER:
+1. KULLANICI NE İSTERSE ONU TAM OLARAK YAP
+2. ASLA YARIM BIRAKMA, ASLA "BURAYI SEN TAMAMLA" DEME
+3. TÜM KODLAR ÇALIŞIR OLSUN, TÜM BAĞIMLILIKLARI EKLE
+
+## 🛠️ DESTEKLENEN TEKNOLOJİLER:
+- ✅ Web: HTML, CSS, JavaScript, React, Vue, Angular
+- ✅ Backend: Node.js, Python (Django/Flask), Java (Spring), Go, Rust, PHP
+- ✅ Mobil: Android (Kotlin/Java), iOS (Swift), Flutter, React Native
+- ✅ Masaüstü: Electron, JavaFX, PyQt, C#
+- ✅ Oyun: Unity (C#), Godot (GDScript), Basit Canvas oyunları
+- ✅ Veritabanı: SQL, MongoDB, Firebase
+- ✅ DevOps: Docker, Kubernetes, CI/CD yapılandırmaları
+- ✅ Script: Bash, Python, PowerShell, Automation scriptleri
+
+## 📁 DOSYA FORMATI (DEĞİŞMEZ):
+Her dosya için bu formatı kullan:
+
+### DOSYA: dosya/yolu.uzanti
+\`\`\`uzanti
+[DOSYANIN TAM İÇERİĞİ]
+\`\`\`
+
+ÖRNEK:
+### DOSYA: index.html
+\`\`\`html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Benim Projem</title>
+</head>
+<body>
+    <h1>Merhaba Dünya</h1>
+</body>
+</html>
+\`\`\`
+
+### DOSYA: app.js
+\`\`\`javascript
+console.log("Merhaba Dünya");
+\`\`\`
+
+## ⚡ TALİMATLAR:
+1. Kullanıcı ne istiyorsa onu tam olarak yap
+2. Tüm gerekli dosyaları oluştur
+3. Bağımlılıkları ekle (package.json, requirements.txt, build.gradle, vs.)
+4. README.md oluştur (projeyi nasıl çalıştıracağını anlatan)
+5. .gitignore dosyası ekle
+6. Eğer proje varsa, mevcut dosyaları bozma, geliştir
+7. Eğer proje yoksa, sıfırdan profesyonel bir proje oluştur
+
+## 🚨 ÖNEMLİ UYARILAR:
+- YANITINDA SADECE DOSYALAR VE KODLAR OLSUN
+- AÇIKLAMA YAPMA, SADECE KOD YAZ
+- TÜM KODLAR TAM VE ÇALIŞIR OLSUN
+- HATA KONTROLÜ YAP, EXCEPTION HANDLING EKLE
+- MODERN VE TEMİZ KOD YAZ
+- PERFORMANSLI KOD YAZ
+- GÜVENLİ KOD YAZ
+
+## 🏁 ŞİMDİ BAŞLA:
+Aşağıdaki kullanıcı komutunu yerine getir:
+"${userCommand}"
+
+MEVCUT PROJE DURUMU:
+${projectContext}
+
+TALİMAT: Yukarıdaki tüm kurallara uyarak, kullanıcının istediğini TAM OLARAK gerçekleştir.
+`.trim();
+
+            // 5. DEEPSEEK API ÇAĞRISI
+            console.log('📡 DeepSeek API çağrısı yapılıyor...');
+            
+            try {
+              const response = await fetch('https://api.deepseek.com/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  model: 'deepseek-chat',
+                  messages: [
+                    {
+                      role: 'system',
+                      content: systemPrompt
+                    },
+                    {
+                      role: 'user',
+                      content: `PROJE: ${context.repo.owner}/${context.repo.repo}\nKOMUT: ${userCommand}\n\nLütfen gerekli tüm dosyaları oluştur.`
+                    }
+                  ],
+                  max_tokens: 32000,
+                  temperature: 0.2
+                })
+              });
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API Hatası: ${response.status} - ${errorText}`);
+              }
+              
+              const data = await response.json();
+              const aiResponse = data.choices[0]?.message?.content || '';
+              
+              if (!aiResponse) {
+                throw new Error('AI boş yanıt döndürdü');
+              }
+              
+              console.log(`✅ AI yanıtı alındı (${aiResponse.length} karakter)`);
+              
+              // 6. AI YANITINDAN DOSYALARI ÇIKAR VE UYGULA
+              console.log('🔄 Dosyalar işleniyor...');
+              
+              // Dosya pattern'ini bul: ### DOSYA: ... ``` ... ```
+              const fileRegex = /### DOSYA:\s*(.+?)\s*\n```(?:[a-z]+)?\n([\s\S]*?)\n```/g;
+              let match;
+              const createdFiles = [];
+              const updatedFiles = [];
+              
+              while ((match = fileRegex.exec(aiResponse)) !== null) {
+                const filePath = match[1].trim();
+                let fileContent = match[2].trim();
+                
+                // Eğer ilk satırda dil belirtilmişse onu kaldır
+                const lines = fileContent.split('\n');
+                if (lines[0] && lines[0].match(/^[a-zA-Z]+$/)) {
+                  lines.shift(); // İlk satırı kaldır
+                  fileContent = lines.join('\n');
+                }
+                
+                console.log(`📝 İşleniyor: ${filePath} (${fileContent.length} karakter)`);
+                
+                try {
+                  // Dosya var mı kontrol et
+                  let sha;
+                  try {
+                    const { data: existing } = await github.rest.repos.getContent({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      path: filePath
+                    });
+                    sha = existing.sha;
+                  } catch (e) {
+                    sha = undefined;
+                  }
+                  
+                  // Dosyayı oluştur veya güncelle
+                  await github.rest.repos.createOrUpdateFileContents({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    path: filePath,
+                    message: `🤖 AI Agent: ${userCommand.substring(0, 50)}...`,
+                    content: Buffer.from(fileContent).toString('base64'),
+                    sha: sha || undefined
+                  });
+                  
+                  if (sha) {
+                    updatedFiles.push(filePath);
+                  } else {
+                    createdFiles.push(filePath);
+                  }
+                  
+                  console.log(`   ${sha ? '🔄 Güncellendi' : '✅ Oluşturuldu'}`);
+                  
+                } catch (fileError) {
+                  console.error(`   ❌ Hata: ${fileError.message}`);
+                }
+              }
+              
+              // 7. SONUÇLARI DÖNDÜR
+              const result = {
+                success: true,
+                totalFiles: createdFiles.length + updatedFiles.length,
+                created: createdFiles,
+                updated: updatedFiles,
+                aiResponsePreview: aiResponse.substring(0, 2000) + (aiResponse.length > 2000 ? '...' : '')
+              };
+              
+              core.setOutput('files_created', createdFiles.length.toString());
+              core.setOutput('files_updated', updatedFiles.length.toString());
+              core.setOutput('total_files', result.totalFiles.toString());
+              core.setOutput('ai_preview', result.aiResponsePreview);
+              
+              return result;
+              
+            } catch (error) {
+              console.error('❌ AI Motoru Hatası:', error);
+              core.setFailed(`AI Motoru Hatası: ${error.message}`);
+              return {
+                success: false,
+                error: error.message
+              };
+            }
+
+      # 3. SONUÇ RAPORU
+      - name: 📈 SONUÇ RAPORU
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          FILES_CREATED: ${{ steps.ai_engine.outputs.files_created }}
+          FILES_UPDATED: ${{ steps.ai_engine.outputs.files_updated }}
+          TOTAL_FILES: ${{ steps.ai_engine.outputs.total_files }}
+          AI_PREVIEW: ${{ steps.ai_engine.outputs.ai_preview }}
+          USER_COMMAND: ${{ github.event.inputs.command || github.event.comment.body || github.event.issue.body }}
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || 
+                               (context.payload.comment ? context.payload.comment.issue_number : null);
+            
+            if (!issueNumber) return;
+            
+            const filesCreated = parseInt(process.env.FILES_CREATED || '0');
+            const filesUpdated = parseInt(process.env.FILES_UPDATED || '0');
+            const totalFiles = parseInt(process.env.TOTAL_FILES || '0');
+            const aiPreview = process.env.AI_PREVIEW || '';
+            const userCommand = process.env.USER_COMMAND || '';
+            
+            let report = `# 🤖 UNIVERSAL AI AGENT - İŞLEM TAMAMLANDI\n\n`;
+            
+            report += `## 📝 KULLANICI KOMUTU\n\`\`\`\n${userCommand}\n\`\`\`\n\n`;
+            
+            report += `## 📊 DOSYA İSTATİSTİKLERİ\n`;
+            report += `- **Toplam İşlenen Dosya:** ${totalFiles}\n`;
+            report += `- **Yeni Oluşturulan:** ${filesCreated}\n`;
+            report += `- **Güncellenen:** ${filesUpdated}\n\n`;
+            
+            if (totalFiles > 0) {
+              report += `## ✅ BAŞARILI\n`;
+              report += `AI Agent talimatınızı işledi ve gerekli dosyaları oluşturdu/güncelledi.\n`;
+              report += `Değişiklikleri GitHub'da görebilirsiniz.\n\n`;
+            } else {
+              report += `## ⚠️ UYARI\n`;
+              report += `AI yanıt verdi ancak dosya oluşturulamadı.\n`;
+              report += `Talimatınızı daha net verin veya mevcut projeyi geliştirmesini isteyin.\n\n`;
+            }
+            
+            if (aiPreview) {
+              report += `## 🧠 AI YANIT ÖZETİ\n`;
+              report += `<details>\n<summary>Tıklayarak AI analizini görüntüleyin</summary>\n\n`;
+              report += `\`\`\`\n${aiPreview}\n\`\`\`\n`;
+              report += `</details>\n\n`;
+            }
+            
+            report += `## 🚀 SONRAKİ ADIMLAR\n`;
+            report += `1. Dosya değişikliklerini inceleyin\n`;
+            report += `2. Gerekirse yerel makinenize çekin (\`git pull\`)\n`;
+            report += `3. Projeyi test edin\n`;
+            report += `4. Yeni bir Issue açarak daha fazla geliştirme isteyin\n\n`;
+            
+            report += `---\n*Bu rapor Universal AI Agent tarafından otomatik oluşturuldu.*`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: report
+            });
+
+      # 4. İŞLEM TAMAM
+      - name: 🏁 İŞLEM TAMAMLANDI
+        if: always()
+        run: |
+          echo "========================================"
+          echo "🤖 UNIVERSAL AI AGENT İŞLEMİ TAMAMLANDI"
+          echo "========================================"
+          echo ""
+          echo "📊 Sonuçlar:"
+          echo "- Oluşturulan dosya: ${{ steps.ai_engine.outputs.files_created || 0 }}"
+          echo "- Güncellenen dosya: ${{ steps.ai_engine.outputs.files_updated || 0 }}"
+          echo "- Toplam işlem: ${{ steps.ai_engine.outputs.total_files || 0 }}"
+          echo ""
+          echo "✅ AI Agent görevini tamamladı."
+          echo "📝 Detaylar için Issue yorumlarını kontrol edin."
