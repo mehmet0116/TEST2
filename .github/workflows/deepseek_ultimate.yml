@@ -167,8 +167,12 @@ jobs:
           python3 << 'PYTHON_EOF'
           import os
           import sys
-          import re
+          import socket
+          import ssl
+          import importlib
+          import urllib.request
           import time
+          import re
           from pathlib import Path
 
           # Helper to safely write outputs to GITHUB_OUTPUT (single-line or multiline)
@@ -199,49 +203,111 @@ jobs:
 
           api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
 
-          # Try to initialize OpenAI client class (new SDK). Keep fallback to module import.
+          # Quick reachability check using urllib (avoid extra deps)
+          def check_reachability(url, timeout=5):
+              try:
+                  req = urllib.request.Request(url, method='HEAD')
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return (True, f"status={r.getcode()}")
+              except Exception as e:
+                  return (False, str(e))
+
+          ok, reason = check_reachability(api_base)
+          print(f"Reachability: {ok}, reason: {reason}")
+          if not ok:
+              try:
+                  host = api_base.replace('https://', '').replace('http://', '').split('/')[0]
+                  ip = socket.gethostbyname(host)
+                  print(f"Resolved {host} -> {ip}")
+                  s = socket.create_connection((ip, 443), timeout=5)
+                  s.close()
+                  print("TCP connect to 443 OK")
+              except Exception as e:
+                  print(f"Network check failed: {e}")
+                  # If unreachable, still try to initialize client (some env may allow it)
+                  # Optionally: exit here if you want to fail fast:
+                  # write_output("success", "false"); write_output("error", f"Cannot reach API base: {reason}"); sys.exit(1)
+
+          # Robust OpenAI client init (try multiple patterns, avoid passing unknown kwargs)
           client = None
+          openai_module = None
           try:
               try:
-                  from openai import OpenAI as OpenAIClientClass
+                  OpenAIClientClass = None
+                  try:
+                      mod_openai = importlib.import_module('openai')
+                      OpenAIClientClass = getattr(mod_openai, "OpenAI", None)
+                  except Exception:
+                      OpenAIClientClass = None
               except Exception:
                   OpenAIClientClass = None
 
+              # 1) Try new client class, instantiate with api_key only, then set base if attribute exists
               if OpenAIClientClass:
-                  # try common constructor names
                   try:
-                      client = OpenAIClientClass(api_key=api_key, api_base=api_base)
-                  except TypeError:
+                      client = OpenAIClientClass(api_key=api_key)
+                      # set base fields if possible
+                      if api_base:
+                          try:
+                              if hasattr(client, "api_base"):
+                                  client.api_base = api_base
+                              elif hasattr(client, "base_url"):
+                                  client.base_url = api_base
+                          except Exception:
+                              pass
+                  except Exception as e:
+                      print("OpenAIClientClass init failed:", e)
+                      client = None
+
+              # 2) fallback to module-level openai
+              if client is None:
+                  try:
+                      openai_module = importlib.import_module('openai')
                       try:
-                          client = OpenAIClientClass(api_key=api_key, base_url=api_base)
-                      except TypeError:
-                          client = None
+                          setattr(openai_module, "api_key", api_key)
+                      except Exception:
+                          try:
+                              openai_module.api_key = api_key
+                          except Exception:
+                              pass
+                      # set base on module if available
+                      if api_base:
+                          if hasattr(openai_module, "api_base"):
+                              try: openai_module.api_base = api_base
+                              except Exception: pass
+                          elif hasattr(openai_module, "base_url"):
+                              try: openai_module.base_url = api_base
+                              except Exception: pass
+                      client = openai_module
+                  except Exception as e:
+                      print("module-level openai import failed:", e)
+                      client = None
 
               if client is None:
-                  import openai as openai_module
-                  # if we reach here, openai_module may be old or new; set api_key and base if available
-                  openai_module.api_key = api_key
-                  if hasattr(openai_module, "api_base"):
-                      openai_module.api_base = api_base
-                  elif hasattr(openai_module, "base_url"):
-                      openai_module.base_url = api_base
-                  # do not set client to openai_module here if openai_module.__version__ >= 1 (we prefer OpenAIClientClass),
-                  # but keep module available for fallback attempts
-                  client = client or openai_module
+                  raise Exception("Unable to initialize OpenAI client with known patterns.")
+
+              print("OpenAI client initialized:", type(client))
 
           except Exception as e:
-              err = f"Client init error: {str(e)}"
-              print("OpenAI istemcisi başlatılamadı:", err)
-              safe_err = err.replace('`', "'").replace('\n', ' ')
+              err = f"Client init error: {e}"
+              print(err)
+              safe_err = str(err).replace('`', "'").replace('\n', ' ')
               write_output("success", "false")
               write_output("error", safe_err)
               sys.exit(1)
 
-          # Scan repository files for context
+          # Collect repository files for context
           fileList = []
           repoContext = ""
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
-          codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.php', '.rb', '.pl', '.swift', '.sh', '.ps1'}
+          codeExtensions = {
+              '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs',
+              '.py', '.pyw', '.pyi', '.java', '.kt', '.kts',
+              '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx',
+              '.cs', '.fs', '.vb', '.go', '.rs', '.php', '.rb', '.pl',
+              '.swift', '.sh', '.ps1', '.yaml', '.yml', '.xml', '.json',
+              '.gradle', '.properties'
+          }
 
           def scanDirectory(directory, depth=0):
               global fileList, repoContext
@@ -306,39 +372,52 @@ jobs:
 
           MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
-          # Robust create_chat_completion with explicit handling of migration message
+          # create_chat_completion wrapper that tries multiple approaches
           def create_chat_completion(model, messages, **kwargs):
-              # 1) If client is instance of new OpenAI client, prefer that
+              # 1) new-style client instance
               try:
-                  if client and hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
+                  if hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
                       return client.chat.completions.create(model=model, messages=messages, **kwargs)
               except Exception as e_new:
-                  err_new = e_new
+                  print("new-client chat call failed:", e_new)
 
-              # 2) Try module-level openai.ChatCompletion.create ONLY if module version < 1.0
+              # 2) module-level ChatCompletion for older openai (<1.0)
               try:
-                  import importlib
-                  _openai = importlib.import_module('openai')
-                  ver = getattr(_openai, "__version__", "")
-                  major = int(ver.split('.')[0]) if ver else None
-                  if major is not None and major < 1 and hasattr(_openai, "ChatCompletion"):
-                      return _openai.ChatCompletion.create(model=model, messages=messages, **kwargs)
+                  if openai_module:
+                      ver = getattr(openai_module, "__version__", None)
+                      if ver:
+                          try:
+                              major = int(ver.split('.')[0])
+                          except Exception:
+                              major = None
+                      else:
+                          major = None
+                      if major is not None and major < 1 and hasattr(openai_module, "ChatCompletion"):
+                          return openai_module.ChatCompletion.create(model=model, messages=messages, **kwargs)
               except Exception as e_mod:
-                  err_mod = e_mod
+                  print("module-level ChatCompletion.create failed:", e_mod)
 
-              # 3) Last attempt: instantiate OpenAI client class dynamically and call it
+              # 3) dynamic retry instantiate OpenAI client without unknown kwargs
               try:
-                  from openai import OpenAI as OpenAIClientClass
-                  cli = OpenAIClientClass(api_key=api_key, api_base=api_base)
-                  return cli.chat.completions.create(model=model, messages=messages, **kwargs)
+                  OpenAIClientClassRetry = getattr(importlib.import_module('openai'), "OpenAI", None)
+                  if OpenAIClientClassRetry:
+                      cli = OpenAIClientClassRetry(api_key=api_key)
+                      # try set base attributes if present
+                      try:
+                          if api_base and hasattr(cli, "api_base"):
+                              cli.api_base = api_base
+                          elif api_base and hasattr(cli, "base_url"):
+                              cli.base_url = api_base
+                      except Exception:
+                          pass
+                      if hasattr(cli, "chat") and hasattr(cli.chat, "completions") and hasattr(cli.chat.completions, "create"):
+                          return cli.chat.completions.create(model=model, messages=messages, **kwargs)
               except Exception as e_cli:
-                  err_cli = e_cli
+                  print("dynamic client retry failed:", e_cli)
 
-              # If all failed, raise a combined error (messages sanitized)
-              raise Exception(f"Chat completion failed. new:{repr(str(err_new) if 'err_new' in locals() else '')} module:{repr(str(err_mod) if 'err_mod' in locals() else '')} client:{repr(str(err_cli) if 'err_cli' in locals() else '')}")
+              raise Exception("All chat completion methods failed")
 
           def extract_text_from_response(response):
-              # Try multiple shapes
               try:
                   return response.choices[0].message.content
               except Exception:
@@ -349,6 +428,10 @@ jobs:
                   pass
               try:
                   return response.choices[0].text
+              except Exception:
+                  pass
+              try:
+                  return response.get('choices')[0].get('message').get('content')
               except Exception:
                   pass
               raise Exception("Yanıttan metin çıkarılamadı")
@@ -422,7 +505,6 @@ jobs:
                   operations.append(f"Yazıldı: {filePath}")
                   print(f"Yazıldı: {filePath}")
 
-              # safely write outputs (operations may be multiline)
               write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
               write_output("count", str(len(operations)))
               write_output("success", "true")
