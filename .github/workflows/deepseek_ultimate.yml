@@ -96,7 +96,7 @@ jobs:
             console.log('Tespit Edilen Tip: ' + projectType);
             console.log('Detaylar: ' + (projectDetails.join(', ') || 'Genel Proje'));
             core.setOutput('type', projectType);
-            core.setOutput('details', projectDetails.join(', ') || 'Genel Proje');
+            core.setOutput('details', projectDetails.join(', ') || 'Genel Proje')
 
       - name: Model Selection
         id: model_selector
@@ -146,12 +146,12 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Python Kurulumu (DeepSeek için)
+      - name: Setup Python for DeepSeek
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: OpenAI SDK Kurulumu
+      - name: Install OpenAI SDK
         run: pip install openai
 
       - name: DeepSeek Kodlama Motoru
