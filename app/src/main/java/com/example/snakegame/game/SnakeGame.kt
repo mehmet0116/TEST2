@@ -1,8 +1,10 @@
 package com.example.snakegame.game
 
+import android.os.Parcelable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.parcelize.Parcelize
 import timber.log.Timber
 import kotlin.math.abs
 
@@ -11,8 +13,8 @@ import kotlin.math.abs
  * @param x X koordinatı
  * @param y Y koordinatı
  */
-@kotlinx.parcelize.Parcelize
-data class Position(val x: Int, val y: Int) : kotlinx.parcelize.Parcelable {
+@Parcelize
+data class Position(val x: Int, val y: Int) : Parcelable {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Position) return false

@@ -22,7 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +49,7 @@ import com.example.snakegame.ui.theme.SnakeDarkGreen
 import com.example.snakegame.ui.theme.SnakeGreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.min
 import timber.log.Timber
 
@@ -65,28 +66,23 @@ fun GameScreen(
     
     // Oyun tahtası boyutunu ekrana uygun şekilde ayarla
     val gridSize = remember(screenWidth, screenHeight) {
-        min(screenWidth, screenHeight * 0.7f).toInt()
+        min(screenWidth, (screenHeight * 0.7f).toInt())
     }
     val cellSize = remember(gridSize) { gridSize / 20 }
     
     val game = remember { SnakeGame() }
-    val gameState by game.gameState
+    val gameState by game.gameState.collectAsState()
     
     // Animasyon değerleri
     val foodAnimation = remember { Animatable(0.4f) }
     val snakeAnimation = remember { Animatable(1f) }
     
-    // Oyun hızını derived state olarak takip et
-    val gameSpeed by remember(gameState.gameSpeed) {
-        derivedStateOf { gameState.gameSpeed }
-    }
-    
     // Oyun döngüsü
-    LaunchedEffect(gameSpeed) {
+    LaunchedEffect(gameState.gameSpeed, gameState.isPaused, gameState.isGameOver) {
         while (true) {
             if (!gameState.isPaused && !gameState.isGameOver) {
                 game.update()
-                delay(gameSpeed.toLong())
+                delay(gameState.gameSpeed.toLong())
             } else {
                 delay(100)
             }
@@ -147,8 +143,8 @@ fun GameScreen(
                             onTap = { offset ->
                                 try {
                                     // Ekrana dokunma ile yön kontrolü
-                                    val cellWidth = size.width / 20
-                                    val cellHeight = size.height / 20
+                                    val cellWidth = size.width / 20f
+                                    val cellHeight = size.height / 20f
                                     val tapX = offset.x / cellWidth
                                     val tapY = offset.y / cellHeight
                                     
@@ -159,7 +155,7 @@ fun GameScreen(
                                     val deltaY = tapY - head.y
                                     
                                     val direction = when {
-                                        kotlin.math.abs(deltaX) > kotlin.math.abs(deltaY) -> {
+                                        abs(deltaX) > abs(deltaY) -> {
                                             if (deltaX > 0) Direction.RIGHT else Direction.LEFT
                                         }
                                         else -> {
@@ -177,8 +173,8 @@ fun GameScreen(
                     }
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val cellWidth = size.width / 20
-                    val cellHeight = size.height / 20
+                    val cellWidth = size.width / 20f
+                    val cellHeight = size.height / 20f
                     
                     // Izgara çizgileri
                     for (i in 0..20) {
