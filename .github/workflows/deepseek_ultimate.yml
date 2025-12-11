@@ -151,8 +151,36 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install OpenAI SDK
-        run: pip install "openai>=1.0.0"
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests
+
+      - name: Validate DEEPSEEK_API_KEY
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          BASE_URL: ${{ steps.model_selector.outputs.base_url }}
+        run: |
+          python3 - <<'PY'
+          import os, sys, requests
+          api_key = os.environ.get('DEEPSEEK_API_KEY')
+          base = (os.environ.get('BASE_URL') or "https://api.deepseek.com").rstrip('/')
+          if not api_key:
+              print("DEEPSEEK_API_KEY yok veya boş")
+              sys.exit(1)
+          url = base + "/v1/models"
+          try:
+              r = requests.get(url, headers={'Authorization': f'Bearer {api_key}'}, timeout=10)
+              print("Auth check HTTP status:", r.status_code)
+              if r.status_code == 401:
+                  print("Unauthorized: DEEPSEEK_API_KEY geçersiz veya izin yok")
+                  sys.exit(2)
+              r.raise_for_status()
+              print("DEEPSEEK API anahtar doğrulandı")
+          except Exception as e:
+              print("Auth check failed:", e)
+              sys.exit(3)
+          PY
 
       - name: DeepSeek Kodlama Motoru
         id: deepseek
@@ -167,15 +195,13 @@ jobs:
           python3 << 'PYTHON_EOF'
           import os
           import sys
-          import socket
-          import ssl
-          import importlib
-          import urllib.request
           import time
+          import json
           import re
           from pathlib import Path
+          import requests
 
-          # Helper to safely write outputs to GITHUB_OUTPUT (single-line or multiline)
+          # GITHUB_OUTPUT helper: single-line or multiline safe
           GITHUB_OUTPUT = os.environ.get('GITHUB_OUTPUT', '/dev/null')
           def write_output(name: str, value: str):
               try:
@@ -192,8 +218,14 @@ jobs:
               except Exception:
                   pass
 
-          # Validate secret early (do NOT print it)
+          # Read envs
           api_key = os.environ.get('DEEPSEEK_API_KEY')
+          api_base = (os.environ.get('BASE_URL') or "https://api.deepseek.com").rstrip('/')
+          MODEL = os.environ.get('MODEL') or 'deepseek-chat'
+          USER_TASK = os.environ.get('USER_TASK') or 'Proje optimize et'
+          PROJECT_TYPE = os.environ.get('PROJECT_TYPE', '')
+          PROJECT_DETAILS = os.environ.get('PROJECT_DETAILS', '')
+
           if not api_key:
               msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
               print(msg)
@@ -201,102 +233,7 @@ jobs:
               write_output("error", msg)
               sys.exit(1)
 
-          api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
-
-          # Quick reachability check using urllib (avoid extra deps)
-          def check_reachability(url, timeout=5):
-              try:
-                  req = urllib.request.Request(url, method='HEAD')
-                  with urllib.request.urlopen(req, timeout=timeout) as r:
-                      return (True, f"status={r.getcode()}")
-              except Exception as e:
-                  return (False, str(e))
-
-          ok, reason = check_reachability(api_base)
-          print(f"Reachability: {ok}, reason: {reason}")
-          if not ok:
-              try:
-                  host = api_base.replace('https://', '').replace('http://', '').split('/')[0]
-                  ip = socket.gethostbyname(host)
-                  print(f"Resolved {host} -> {ip}")
-                  s = socket.create_connection((ip, 443), timeout=5)
-                  s.close()
-                  print("TCP connect to 443 OK")
-              except Exception as e:
-                  print(f"Network check failed: {e}")
-                  # If unreachable, still try to initialize client (some env may allow it)
-                  # Optionally: exit here if you want to fail fast:
-                  # write_output("success", "false"); write_output("error", f"Cannot reach API base: {reason}"); sys.exit(1)
-
-          # Robust OpenAI client init (try multiple patterns, avoid passing unknown kwargs)
-          client = None
-          openai_module = None
-          try:
-              try:
-                  OpenAIClientClass = None
-                  try:
-                      mod_openai = importlib.import_module('openai')
-                      OpenAIClientClass = getattr(mod_openai, "OpenAI", None)
-                  except Exception:
-                      OpenAIClientClass = None
-              except Exception:
-                  OpenAIClientClass = None
-
-              # 1) Try new client class, instantiate with api_key only, then set base if attribute exists
-              if OpenAIClientClass:
-                  try:
-                      client = OpenAIClientClass(api_key=api_key)
-                      # set base fields if possible
-                      if api_base:
-                          try:
-                              if hasattr(client, "api_base"):
-                                  client.api_base = api_base
-                              elif hasattr(client, "base_url"):
-                                  client.base_url = api_base
-                          except Exception:
-                              pass
-                  except Exception as e:
-                      print("OpenAIClientClass init failed:", e)
-                      client = None
-
-              # 2) fallback to module-level openai
-              if client is None:
-                  try:
-                      openai_module = importlib.import_module('openai')
-                      try:
-                          setattr(openai_module, "api_key", api_key)
-                      except Exception:
-                          try:
-                              openai_module.api_key = api_key
-                          except Exception:
-                              pass
-                      # set base on module if available
-                      if api_base:
-                          if hasattr(openai_module, "api_base"):
-                              try: openai_module.api_base = api_base
-                              except Exception: pass
-                          elif hasattr(openai_module, "base_url"):
-                              try: openai_module.base_url = api_base
-                              except Exception: pass
-                      client = openai_module
-                  except Exception as e:
-                      print("module-level openai import failed:", e)
-                      client = None
-
-              if client is None:
-                  raise Exception("Unable to initialize OpenAI client with known patterns.")
-
-              print("OpenAI client initialized:", type(client))
-
-          except Exception as e:
-              err = f"Client init error: {e}"
-              print(err)
-              safe_err = str(err).replace('`', "'").replace('\n', ' ')
-              write_output("success", "false")
-              write_output("error", safe_err)
-              sys.exit(1)
-
-          # Collect repository files for context
+          # Scan repository for context
           fileList = []
           repoContext = ""
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
@@ -336,16 +273,16 @@ jobs:
           scanDirectory('.')
           print(f"Taranan dosya: {len(fileList)}")
 
-          # system prompt (proper triple-quoted f-string)
+          # System prompt (triple-quoted f-string)
           systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
 
           PROJE BILGISI:
-          - Tip: {os.environ.get('PROJECT_TYPE')}
-          - Detaylar: {os.environ.get('PROJECT_DETAILS')}
-          - Model: {os.environ.get('MODEL')} (DeepSeek-V3.2 Ailesi)
+          - Tip: {PROJECT_TYPE}
+          - Detaylar: {PROJECT_DETAILS}
+          - Model: {MODEL}
 
           GÖREV:
-          {os.environ.get('USER_TASK')}
+          {USER_TASK}
 
           DOSYA YAZMA FORMATI:
           ---FILE: dosya/yolu/isim.uzanti---
@@ -372,151 +309,112 @@ jobs:
 
           MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
-          # create_chat_completion wrapper that tries multiple approaches
-          def create_chat_completion(model, messages, **kwargs):
-              # 1) new-style client instance
-              try:
-                  if hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
-                      return client.chat.completions.create(model=model, messages=messages, **kwargs)
-              except Exception as e_new:
-                  print("new-client chat call failed:", e_new)
+          # Direct HTTP helper (OpenAI-compatible)
+          def post_chat(api_base, api_key, model, messages, max_tokens=16000, temperature=0.7, timeout=60):
+              url = f"{api_base}/v1/chat/completions"
+              headers = {
+                  "Authorization": f"Bearer {api_key}",
+                  "Content-Type": "application/json"
+              }
+              payload = {
+                  "model": model,
+                  "messages": messages,
+                  "max_tokens": max_tokens,
+                  "temperature": temperature
+              }
+              return requests.post(url, headers=headers, json=payload, timeout=timeout)
 
-              # 2) module-level ChatCompletion for older openai (<1.0)
+          def parse_response(resp_json):
               try:
-                  if openai_module:
-                      ver = getattr(openai_module, "__version__", None)
-                      if ver:
-                          try:
-                              major = int(ver.split('.')[0])
-                          except Exception:
-                              major = None
-                      else:
-                          major = None
-                      if major is not None and major < 1 and hasattr(openai_module, "ChatCompletion"):
-                          return openai_module.ChatCompletion.create(model=model, messages=messages, **kwargs)
-              except Exception as e_mod:
-                  print("module-level ChatCompletion.create failed:", e_mod)
-
-              # 3) dynamic retry instantiate OpenAI client without unknown kwargs
-              try:
-                  OpenAIClientClassRetry = getattr(importlib.import_module('openai'), "OpenAI", None)
-                  if OpenAIClientClassRetry:
-                      cli = OpenAIClientClassRetry(api_key=api_key)
-                      # try set base attributes if present
-                      try:
-                          if api_base and hasattr(cli, "api_base"):
-                              cli.api_base = api_base
-                          elif api_base and hasattr(cli, "base_url"):
-                              cli.base_url = api_base
-                      except Exception:
-                          pass
-                      if hasattr(cli, "chat") and hasattr(cli.chat, "completions") and hasattr(cli.chat.completions, "create"):
-                          return cli.chat.completions.create(model=model, messages=messages, **kwargs)
-              except Exception as e_cli:
-                  print("dynamic client retry failed:", e_cli)
-
-              raise Exception("All chat completion methods failed")
-
-          def extract_text_from_response(response):
-              try:
-                  return response.choices[0].message.content
+                  choices = resp_json.get('choices') or []
+                  if choices:
+                      msg = choices[0].get('message') or {}
+                      content = msg.get('content')
+                      if content:
+                          return content
+                      reasoning = msg.get('reasoning_content')
+                      if reasoning:
+                          return reasoning
+                      text = choices[0].get('text')
+                      if text:
+                          return text
               except Exception:
                   pass
-              try:
-                  return response['choices'][0]['message']['content']
-              except Exception:
-                  pass
-              try:
-                  return response.choices[0].text
-              except Exception:
-                  pass
-              try:
-                  return response.get('choices')[0].get('message').get('content')
-              except Exception:
-                  pass
-              raise Exception("Yanıttan metin çıkarılamadı")
+              return json.dumps(resp_json)
 
-          # API çağrısı için retry/backoff
+          # Retry/backoff
           max_retries = 3
           backoff = 2
-          last_exc = None
           aiResponse = None
+          last_exc = None
 
-          try:
-              print("DeepSeek API çağrısı başlıyor...")
-              print(f"Model: {os.environ.get('MODEL')}")
-              print(f"Base URL: {api_base}")
+          messages = [
+              {"role":"system","content": systemPrompt},
+              {"role":"user","content": repoContext or "Boş proje - sıfırdan başla"}
+          ]
 
-              for attempt in range(1, max_retries + 1):
-                  try:
-                      response = create_chat_completion(
-                          model=os.environ.get('MODEL'),
-                          messages=[
-                              {"role": "system", "content": systemPrompt},
-                              {"role": "user", "content": repoContext or "Boş proje - sıfırdan başla"}
-                          ],
-                          max_tokens=16000,
-                          temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
-                          stream=False,
-                      )
-                      aiResponse = extract_text_from_response(response)
-                      print("AI yanıtı alındı")
-                      break
-                  except Exception as e:
-                      last_exc = e
-                      serr = str(e).replace('`', "'")
-                      print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {serr}")
-                      if attempt < max_retries:
-                          sleep_time = backoff ** attempt
-                          print(f"{sleep_time}s beklenip tekrar deneniyor...")
-                          time.sleep(sleep_time)
-                      else:
-                          raise
+          for attempt in range(1, max_retries + 1):
+              try:
+                  resp = post_chat(api_base, api_key, MODEL, messages,
+                                   max_tokens=16000,
+                                   temperature=0.5 if MODEL == 'deepseek-reasoner' else 0.7)
+                  print("HTTP status:", resp.status_code)
+                  if resp.status_code == 401:
+                      msg = "Unauthorized (401): DEEPSEEK_API_KEY geçersiz veya izin yok"
+                      print(msg)
+                      write_output("success","false")
+                      write_output("error", msg)
+                      sys.exit(1)
+                  if not resp.ok:
+                      raise Exception(f"HTTP {resp.status_code}: {resp.text[:1000]}")
+                  data = resp.json()
+                  aiResponse = parse_response(data)
+                  print("AI yanıtı alındı")
+                  break
+              except Exception as e:
+                  last_exc = e
+                  serr = str(e).replace('`', "'")
+                  print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {serr}")
+                  if attempt < max_retries:
+                      sleep_time = backoff ** attempt
+                      print(f"{sleep_time}s beklenip tekrar deneniyor...")
+                      time.sleep(sleep_time)
+                  else:
+                      raise
 
-              if aiResponse is None:
-                  raise Exception(f"No response from API. Last error: {last_exc}")
-
-              operations = []
-
-              for match in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
-                  dirPath = match.group(1).strip()
-                  if Path(dirPath).exists() and Path(dirPath).is_dir():
-                      import shutil
-                      shutil.rmtree(dirPath)
-                      operations.append(f"Klasör silindi: {dirPath}")
-                      print(f"Klasör silindi: {dirPath}")
-
-              for match in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
-                  filePath = match.group(1).strip()
-                  if Path(filePath).exists():
-                      Path(filePath).unlink()
-                      operations.append(f"Dosya silindi: {filePath}")
-                      print(f"Dosya silindi: {filePath}")
-
-              for match in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
-                  filePath = match.group(1).strip()
-                  content = match.group(2).rstrip()
-
-                  dirPath = Path(filePath).parent
-                  if dirPath != Path('.'):
-                      dirPath.mkdir(parents=True, exist_ok=True)
-
-                  Path(filePath).write_text(content, encoding='utf-8')
-                  operations.append(f"Yazıldı: {filePath}")
-                  print(f"Yazıldı: {filePath}")
-
-              write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
-              write_output("count", str(len(operations)))
-              write_output("success", "true")
-
-          except Exception as e:
-              err = str(e).replace('`', "'")
-              print(f"Hata: {err}")
-              write_output("operations", "İşlem yapılamadı")
-              write_output("count", "0")
-              write_output("success", "false")
-              write_output("error", err)
+          if aiResponse is None:
+              err = f"No response from API. Last error: {last_exc}"
+              print(err)
+              write_output("success","false")
+              write_output("error", str(last_exc))
               sys.exit(1)
+
+          # Parse operations from aiResponse
+          operations = []
+          for m in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
+              dirPath = m.group(1).strip()
+              if Path(dirPath).exists() and Path(dirPath).is_dir():
+                  import shutil
+                  shutil.rmtree(dirPath)
+                  operations.append(f"Klasör silindi: {dirPath}")
+          for m in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
+              filePath = m.group(1).strip()
+              if Path(filePath).exists():
+                  Path(filePath).unlink()
+                  operations.append(f"Dosya silindi: {filePath}")
+          for m in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
+              filePath = m.group(1).strip()
+              content = m.group(2).rstrip()
+              dirPath = Path(filePath).parent
+              if dirPath != Path('.'):
+                  dirPath.mkdir(parents=True, exist_ok=True)
+              Path(filePath).write_text(content, encoding='utf-8')
+              operations.append(f"Yazıldı: {filePath}")
+
+          # Write outputs safely
+          write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
+          write_output("count", str(len(operations)))
+          write_output("success", "true")
           PYTHON_EOF
 
       - name: Derleme
@@ -575,7 +473,7 @@ jobs:
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
             TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik güncelleme' }}"
             TASK_SHORT=$(echo "$TASK" | head -c 100)
-            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Komplek[...]" || true
+            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Kompleksite: ${{ steps.model_selector.outputs.complexity }}" || true
           fi
 
       - name: Değişiklikleri Gönder
@@ -632,7 +530,7 @@ jobs:
               report += '### Hata Detayı\n' + process.env.ERROR + '\n\n';
             }
             
-            report += '\n---\n*DeepSeek Ultimate v3.2-Güncel (OpenAI SDK) tarafından oluşturuldu*';
+            report += '\n---\n*DeepSeek Ultimate v3.2-Güncel tarafından oluşturuldu*';
             
             try {
               if (context.issue && context.issue.number) {
