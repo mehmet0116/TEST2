@@ -163,14 +163,30 @@ jobs:
         run: |
           python3 - <<'PY'
           import os, sys, requests
-          api_key = os.environ.get('DEEPSEEK_API_KEY')
-          base = (os.environ.get('BASE_URL') or "https://api.deepseek.com").rstrip('/')
-          if not api_key:
+          def sanitize_key(k):
+              if k is None:
+                  return None
+              k = k.strip()
+              # remove surrounding quotes if present
+              if (k.startswith("'") and k.endswith("'")) or (k.startswith('"') and k.endswith('"')):
+                  k = k[1:-1].strip()
+              # remove leading byte-literal prefix b'...' or b"..."
+              if (k.startswith("b'") and k.endswith("'")) or (k.startswith('b"') and k.endswith('"')):
+                  k = k[2:-1]
+              # final strip of whitespace/newlines
+              return k.strip()
+
+          raw = os.environ.get('DEEPSEEK_API_KEY')
+          key = sanitize_key(raw)
+          if not key:
               print("DEEPSEEK_API_KEY yok veya boş")
               sys.exit(1)
+          base = (os.environ.get('BASE_URL') or "https://api.deepseek.com").rstrip('/')
           url = base + "/v1/models"
           try:
-              r = requests.get(url, headers={'Authorization': f'Bearer {api_key}'}, timeout=10)
+              # length check (safe to print)
+              print("Key length:", len(key))
+              r = requests.get(url, headers={'Authorization': f'Bearer {key}'}, timeout=10)
               print("Auth check HTTP status:", r.status_code)
               if r.status_code == 401:
                   print("Unauthorized: DEEPSEEK_API_KEY geçersiz veya izin yok")
@@ -226,6 +242,20 @@ jobs:
           PROJECT_TYPE = os.environ.get('PROJECT_TYPE', '')
           PROJECT_DETAILS = os.environ.get('PROJECT_DETAILS', '')
 
+          # Sanitize API key
+          def sanitize_key(k: str) -> str:
+              if k is None:
+                  return None
+              k = k.strip()
+              # remove surrounding quotes
+              if (k.startswith("'") and k.endswith("'")) or (k.startswith('"') and k.endswith('"')):
+                  k = k[1:-1].strip()
+              # remove leading byte literal b'...' or b"..."
+              if (k.startswith("b'") and k.endswith("'")) or (k.startswith('b"') and k.endswith('"')):
+                  k = k[2:-1]
+              return k.strip()
+
+          api_key = sanitize_key(api_key)
           if not api_key:
               msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
               print(msg)
