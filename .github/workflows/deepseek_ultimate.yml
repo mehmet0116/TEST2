@@ -107,7 +107,7 @@ jobs:
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com/v3.2_speciale_expires_on_20251215" >> $GITHUB_OUTPUT
             echo "complexity=speciale" >> $GITHUB_OUTPUT
-          elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)"; then
+          elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure)"; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
             echo "complexity=high" >> $GITHUB_OUTPUT
@@ -152,7 +152,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install OpenAI SDK
-        run: pip install openai
+        run: pip install "openai>=1.0.0"
 
       - name: DeepSeek Kodlama Motoru
         id: deepseek
@@ -169,19 +169,44 @@ jobs:
           import sys
           import json
           import re
+          import time
           from pathlib import Path
-          from openai import OpenAI
+          try:
+              from openai import OpenAI
+          except Exception as e:
+              print("openai kütüphanesi yüklenemedi:", e)
+              with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
+                  f.write("success=false\n")
+                  f.write(f"error=OpenAI SDK import error: {str(e)}\n")
+              sys.exit(1)
 
-          client = OpenAI(
-              api_key=os.environ.get('DEEPSEEK_API_KEY'),
-              base_url=os.environ.get('BASE_URL')
-          )
+          # DEEPSEEK_API_KEY kontrolü
+          if not os.environ.get('DEEPSEEK_API_KEY'):
+              msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
+              print(msg)
+              with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
+                  f.write("success=false\n")
+                  f.write(f"error={msg}\n")
+              sys.exit(1)
+
+          # OpenAI client başlatma (api_base kullanılıyor)
+          api_key = os.environ.get('DEEPSEEK_API_KEY')
+          api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
+          client = None
+          try:
+              client = OpenAI(api_key=api_key, api_base=api_base)
+          except Exception as e:
+              print("OpenAI istemcisi başlatılamadı:", e)
+              with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
+                  f.write("success=false\n")
+                  f.write(f"error=Client init error: {str(e)}\n")
+              sys.exit(1)
 
           fileList = []
           repoContext = ""
 
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
-          codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.rb', '.php', '.swift', '.m', '.mm', '.xml', '.json', '.yaml', '.yml', '.toml', '.html', '.css', '.scss', '.sass', '.less', '.md', '.txt', '.rst', '.gradle', '.properties', '.pro', '.sql', '.sh', '.bash', '.zsh', '.ps1', '.dockerfile'}
+          codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.gradle', '.sh'}
 
           def scanDirectory(directory, depth=0):
               global fileList, repoContext
@@ -204,15 +229,15 @@ jobs:
                                       relPath = str(item.relative_to('.'))
                                       repoContext += f"\n=== {relPath} ===\n{content}\n"
                                       fileList.append(relPath)
-                              except:
+                              except Exception:
                                   pass
-              except:
+              except Exception:
                   pass
 
           scanDirectory('.')
           print(f"Taranan dosya: {len(fileList)}")
 
-          systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
+          systemPrompt = f\"\"\"Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
 
           PROJE BILGISI:
           - Tip: {os.environ.get('PROJECT_TYPE')}
@@ -245,26 +270,46 @@ jobs:
           ❌ Eksik kod yazma
           ❌ Placeholder bırakma
 
-          MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
+          MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}\"\"\"
+
+          # API çağrısı için retry/backoff
+          max_retries = 3
+          backoff = 2
+          last_exc = None
+          aiResponse = None
 
           try:
               print("DeepSeek API çağrısı başlıyor...")
               print(f"Model: {os.environ.get('MODEL')}")
-              print(f"Base URL: {os.environ.get('BASE_URL')}")
+              print(f"Base URL: {api_base}")
 
-              response = client.chat.completions.create(
-                  model=os.environ.get('MODEL'),
-                  messages=[
-                      {"role": "system", "content": systemPrompt},
-                      {"role": "user", "content": repoContext or "Boş proje - sıfırdan başla"}
-                  ],
-                  max_tokens=64000,
-                  temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
-                  stream=False
-              )
+              for attempt in range(1, max_retries + 1):
+                  try:
+                      response = client.chat.completions.create(
+                          model=os.environ.get('MODEL'),
+                          messages=[
+                              {"role": "system", "content": systemPrompt},
+                              {"role": "user", "content": repoContext or "Boş proje - sıfırdan başla"}
+                          ],
+                          max_tokens=16000,
+                          temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
+                          stream=False,
+                      )
+                      aiResponse = response.choices[0].message.content
+                      print("AI yanıtı alındı")
+                      break
+                  except Exception as e:
+                      last_exc = e
+                      print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {e}")
+                      if attempt < max_retries:
+                          sleep_time = backoff ** attempt
+                          print(f"{sleep_time}s beklenip tekrar deneniyor...")
+                          time.sleep(sleep_time)
+                      else:
+                          raise
 
-              aiResponse = response.choices[0].message.content
-              print("AI yanıtı alındı")
+              if aiResponse is None:
+                  raise Exception(f"No response from API. Last error: {last_exc}")
 
               operations = []
 
@@ -285,7 +330,7 @@ jobs:
 
               for match in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
                   filePath = match.group(1).strip()
-                  content = match.group(2).strip()
+                  content = match.group(2).rstrip()
 
                   dirPath = Path(filePath).parent
                   if dirPath != Path('.'):
@@ -297,14 +342,18 @@ jobs:
 
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                   f.write(f"operations<<EOF\n")
-                  f.write('\n'.join(operations))
+                  f.write('\n'.join(operations) if operations else 'İşlem yapılmadı')
                   f.write(f"\nEOF\n")
                   f.write(f"count={len(operations)}\n")
                   f.write(f"success=true\n")
 
           except Exception as e:
               print(f"Hata: {str(e)}")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
+                  f.write(f"operations<<EOF\n")
+                  f.write('İşlem yapılamadı\n')
+                  f.write(f"\nEOF\n")
+                  f.write(f"count=0\n")
                   f.write(f"success=false\n")
                   f.write(f"error={str(e)}\n")
               sys.exit(1)
@@ -366,7 +415,7 @@ jobs:
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
             TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik güncelleme' }}"
             TASK_SHORT=$(echo "$TASK" | head -c 100)
-            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Kompleksite: ${{ steps.model_selector.outputs.complexity }}" -m "İşlem sayısı: ${{ steps.deepseek.outputs.count }}" -m "Proje tipi: ${{ steps.detect.outputs.type }}"
+            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Kompleksite: ${{ steps.model_selector.outputs.complexity }}" || true
           fi
 
       - name: Değişiklikleri Gönder
