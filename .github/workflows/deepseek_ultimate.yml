@@ -1,22 +1,22 @@
 name: DeepSeek Ultimate
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:  
     inputs:
-      task:
+      task: 
         description: 'Yapılacak görev'
         required: true
         type: string
   push:
-    branches:
+    branches: 
       - main
   issues:
-    types:  [opened, edited]
+    types: [opened, edited]
   issue_comment:
     types: [created, edited]
 
 jobs:
-  deepseek: 
+  deepseek:  
     runs-on: ubuntu-latest
     env:
       GIT_COMMITTER_NAME:  "github-actions[bot]"
@@ -32,12 +32,12 @@ jobs:
       - name: Git Yapilandirmasi
         run: |
           git config --global user.name "${GIT_COMMITTER_NAME}"
-          git config --global user. email "${GIT_COMMITTER_EMAIL}"
+          git config --global user.email "${GIT_COMMITTER_EMAIL}"
           git config --global pull.rebase false
           git config --global push.autoSetupRemote true
 
       - name: Senkronizasyon
-        run: |
+        run:  |
           set -euo pipefail
           echo "Uzak degisiklikler kontrol ediliyor..."
           git fetch origin || true
@@ -83,11 +83,11 @@ jobs:
             if (fs.existsSync('CMakeLists.txt') || fs.existsSync('Makefile') ||
                 fs. existsSync('meson.build')) {
               if (projectType === 'general') projectType = 'cpp';
-              projectDetails. push('C/C++');
+              projectDetails.push('C/C++');
             }
             if (fs.existsSync('Cargo.toml')) {
               if (projectType === 'general') projectType = 'rust';
-              projectDetails.push('Rust');
+              projectDetails. push('Rust');
             }
             if (fs.existsSync('go.mod')) {
               if (projectType === 'general') projectType = 'go';
@@ -102,7 +102,7 @@ jobs:
         if: steps.detect.outputs.type == 'android'
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution:  'temurin'
           java-version: '17'
 
       - name: (Optional) Node.js Kurulumu
@@ -121,8 +121,8 @@ jobs:
         if: steps.detect.outputs.type == 'rust'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: (Optional) Go Kurulumu
-        if: steps.detect.outputs.type == 'go'
+      - name:  (Optional) Go Kurulumu
+        if: steps.detect. outputs.type == 'go'
         uses: actions/setup-go@v5
         with: 
           go-version: '1.21'
@@ -134,7 +134,7 @@ jobs:
           while IFS= read -r -d '' file; do
             if grep -n -E '^[[:space:]]*suppressKotlinVersionCompatibilityCheck[[:space:]]*$' "$file" >/dev/null 2>&1; then
               echo "Duzeltiliyor: $file"
-              sed -i. bak -E "s/^[[:space:]]*suppressKotlinVersionCompatibilityCheck[[:space:]]*$/# removed undefined suppressKotlinVersionCompatibilityCheck/" "$file"
+              sed -i. bak -E "s/^[[:space:]]*suppressKotlinVersionCompatibilityCheck[[: space:]]*$/# removed undefined suppressKotlinVersionCompatibilityCheck/" "$file"
               rm -f "$file.bak" || true
               FOUND=true
             fi
@@ -157,7 +157,7 @@ jobs:
         timeout-minutes: 45
         env:
           API_KEY: ${{ secrets. DEEPSEEK_API_KEY }}
-          USER_MSG: ${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github. event.issue.body) || '' }}
+          USER_MSG: ${{ github.event.inputs.task || (github.event. comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || '' }}
           PROJECT_TYPE: ${{ steps.detect.outputs.type }}
           PROJECT_DETAILS: ${{ steps. detect.outputs.details }}
         with:
@@ -165,7 +165,7 @@ jobs:
             const fs = require('fs');
             const path = require('path');
             const fetch = global.fetch || require('node-fetch');
-            const ignoreDirs = new Set(['.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor', '. next', '.nuxt']);
+            const ignoreDirs = new Set(['.git', 'node_modules', 'build', 'dist', '. gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor', '.next', '. nuxt']);
             const codeExtensions = new Set([
               '.js', '.ts', '.jsx', '.tsx', '. mjs', '.cjs',
               '.py', '.pyw', '.pyi',
@@ -207,7 +207,7 @@ jobs:
                         try {
                           const content = fs.readFileSync(fullPath, 'utf8');
                           repoContext += '\n=== DOSYA:  ' + relativePath + ' ===\n' + content + '\n=== DOSYA SONU ===\n';
-                          fileList.push(relativePath);
+                          fileList. push(relativePath);
                         } catch (e) {}
                       }
                     }
@@ -221,7 +221,7 @@ jobs:
               'Sen DeepSeek ULTIMATE, dunya standartlarinda profesyonel bir yazilim muhendisisin.\n\n' +
               'PROJE BILGISI:\n' +
               '- Tip: ' + process.env.PROJECT_TYPE + '\n' +
-              '- Detaylar:  ' + process.env.PROJECT_DETAILS + '\n\n' +
+              '- Detaylar: ' + process.env. PROJECT_DETAILS + '\n\n' +
               'GOREV:\n' + process.env.USER_MSG + '\n\n' +
               'KRITIK KURALLAR:\n\n' +
               '1. DOSYA OLUSTURMA/GUNCELLEME FORMATI:\n' +
@@ -263,7 +263,7 @@ jobs:
                   temperature: 0.7
                 })
               });
-              if (! response.ok) {
+              if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error('API Hatasi: ' + response.status + ' - ' + errorText);
               }
@@ -310,7 +310,7 @@ jobs:
               core.setOutput('thinking', Buffer.from(thinking).toString('base64'));
               core.setOutput('success', 'true');
             } catch (error) {
-              console.error('Hata: ' + error. message);
+              console.error('Hata: ' + error.message);
               core.setOutput('success', 'false');
               core.setOutput('error', error.message);
               core.setFailed(error.message);
@@ -338,7 +338,7 @@ jobs:
                 npm ci --silent || npm install --silent
                 npm run build --if-present && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Build hatasi" >> $GITHUB_ENV
               else
-                echo "BUILD_STATUS=package. json bulunamadi" >> $GITHUB_ENV
+                echo "BUILD_STATUS=package.json bulunamadi" >> $GITHUB_ENV
               fi
               ;;
             python)
@@ -358,7 +358,7 @@ jobs:
               ;;
           esac
 
-      - name: Degisiklikleri Kaydet
+      - name: Degisiklikleri Kaydet ve Gonder
         if: steps.deepseek.outputs.success == 'true'
         run: |
           set -euo pipefail
@@ -366,30 +366,15 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "Degisiklik yok"
-          else
-            echo "Degisiklikler tespit edildi"
-            TASK="${{ github.event.inputs.task || (github.event.comment && github. event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik guncelleme' }}"
-            TASK_SHORT=$(echo "$TASK" | head -c 100)
-            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Islem sayisi: ${{ steps.deepseek.outputs.count }}" -m "Proje tipi: ${{ steps.detect.outputs.type }}"
+            exit 0
           fi
-
-      - name: Degisiklikleri Gonder
-        if: steps.deepseek.outputs.success == 'true'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          echo "Degisiklikler kontrol ediliyor..."
-          if !  git diff --quiet HEAD origin/main 2>/dev/null; then
-            echo "Degisiklikler bulundu, gonderiliyor..."
-            CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-            git config --global user.name "${GIT_COMMITTER_NAME}"
-            git config --global user.email "${GIT_COMMITTER_EMAIL}"
-            git pull origin "$CURRENT_BRANCH" --no-edit --strategy-option=ours || true
-            git push https://${{ github.token }}@github.com/${{ github.repository }}.git "$CURRENT_BRANCH" -u
-            echo "Push basarili!"
-          else
-            echo "Gonderilecek degisiklik yok"
-          fi
+          echo "Degisiklikler bulundu, kaydediliyor..."
+          TASK="${{ github.event.inputs. task || 'Otomatik guncelleme' }}"
+          TASK_SHORT=$(echo "$TASK" | head -c 100)
+          git -c user.name="${GIT_COMMITTER_NAME}" -c user. email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Proje tipi: ${{ steps.detect.outputs.type }}"
+          echo "Gonderiliyor..."
+          git push origin main
+          echo "Push basarili!"
 
       - name: Sonuc Raporu
         uses: actions/github-script@v7
@@ -413,7 +398,7 @@ jobs:
             const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
             let thinking = '';
             try {
-              thinking = Buffer.from(process.env.THINKING_B64 || '', 'base64').toString('utf-8');
+              thinking = Buffer.from(process.env. THINKING_B64 || '', 'base64').toString('utf-8');
             } catch (e) {}
             const statusEmoji = success ? 'BASARILI' : 'HATA';
             let report = '## DeepSeek Ultimate Raporu\n\n';
@@ -427,7 +412,7 @@ jobs:
               report += '### Yapilan Islemler\n' + operations + '\n\n';
             }
             if (! success && process.env.ERROR) {
-              report += '### Hata Detayi\n' + process.env.ERROR + '\n\n';
+              report += '### Hata Detayi\n' + process.env. ERROR + '\n\n';
             }
             if (thinking && thinking. length > 0) {
               const thinkingPreview = thinking.substring(0, 2000);
@@ -435,7 +420,7 @@ jobs:
             }
             report += '\n---\n*DeepSeek Ultimate v30.0 tarafindan olusturuldu*';
             try {
-              if (context. issue && context.issue.number) {
+              if (context.issue && context.issue.number) {
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo. repo,
