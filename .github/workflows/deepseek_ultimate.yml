@@ -1,525 +1,540 @@
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
-    with:
-      fetch-depth: 0
-      token: ${{ secrets.GITHUB_TOKEN }}
+name: DeepSeek Ultimate
 
-  - name: Git Yapılandırması
-    run: |
-      git config --global user.name "${GIT_COMMITTER_NAME}"
-      git config --global user.email "${GIT_COMMITTER_EMAIL}"
-      git config --global pull.rebase false
-      git config --global push.autoSetupRemote true
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Yapılacak görev'
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
 
-  - name: Senkronizasyon
-    run: |
-      set -euo pipefail
-      echo "Uzak değişiklikler kontrol ediliyor..."
-      git fetch origin || true
-      CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-      if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "HEAD" ]; then
-        CURRENT_BRANCH="${GITHUB_REF##*/}"
-      fi
-      echo "Mevcut dal: $CURRENT_BRANCH"
-      if git ls-remote --exit-code origin "$CURRENT_BRANCH" >/dev/null 2>&1; then
-        if git diff --quiet HEAD origin/"$CURRENT_BRANCH" 2>/dev/null; then
-          echo "Yerel ve uzak senkronize."
-        else
-          echo "Uzak değişiklikler birleştiriliyor..."
-          git pull origin "$CURRENT_BRANCH" --no-edit || true
-        fi
-      else
-        echo "Uzakta $CURRENT_BRANCH dalı bulunamadı; devam ediliyor."
-      fi
-
-  - name: Proje Tipi Algılama
-    id: detect
-    uses: actions/github-script@v7
-    with:
-      script: |
-        const fs = require('fs');
-        let projectType = 'general';
-        let projectDetails = [];
-        if (fs.existsSync('build.gradle') || fs.existsSync('app/build.gradle') ||
-            fs.existsSync('build.gradle.kts') || fs.existsSync('settings.gradle') ||
-            fs.existsSync('settings.gradle.kts')) {
-          projectType = 'android';
-          projectDetails.push('Android/Kotlin');
-        }
-        if (fs.existsSync('package.json')) {
-          if (projectType === 'general') projectType = 'node';
-          projectDetails.push('Node.js/JavaScript');
-        }
-        if (fs.existsSync('requirements.txt') || fs.existsSync('pyproject.toml') ||
-            fs.existsSync('setup.py') || fs.existsSync('Pipfile')) {
-          if (projectType === 'general') projectType = 'python';
-          projectDetails.push('Python');
-        }
-        if (fs.existsSync('CMakeLists.txt') || fs.existsSync('Makefile') ||
-            fs.existsSync('meson.build')) {
-          if (projectType === 'general') projectType = 'cpp';
-          projectDetails.push('C/C++');
-        }
-        if (fs.existsSync('Cargo.toml')) {
-          if (projectType === 'general') projectType = 'rust';
-          projectDetails.push('Rust');
-        }
-        if (fs.existsSync('go.mod')) {
-          if (projectType === 'general') projectType = 'go';
-          projectDetails.push('Go');
-        }
-        console.log('Tespit Edilen Tip: ' + projectType);
-        console.log('Detaylar: ' + (projectDetails.join(', ') || 'Genel Proje'));
-        core.setOutput('type', projectType);
-        core.setOutput('details', projectDetails.join(', ') || 'Genel Proje')
-
-  - name: Model Selection
-    id: model_selector
-    run: |
-      TASK="${{ github.event.inputs.task }}"
-      
-      if echo "$TASK" | grep -qiE "(IMO|CMO|ICPC|IOI|olympiad|gold-medal|ultimate reasoning|speciale)"; then
-        echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
-        echo "base_url=https://api.deepseek.com/v3.2_speciale_expires_on_20251215" >> $GITHUB_OUTPUT
-        echo "complexity=speciale" >> $GITHUB_OUTPUT
-      elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure)"; then
-        echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
-        echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
-        echo "complexity=high" >> $GITHUB_OUTPUT
-      else
-        echo "model=deepseek-chat" >> $GITHUB_OUTPUT
-        echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
-        echo "complexity=low" >> $GITHUB_OUTPUT
-      fi
-
-  - name: Java Kurulumu
-    if: steps.detect.outputs.type == 'android'
-    uses: actions/setup-java@v4
-    with:
-      distribution: 'temurin'
-      java-version: '17'
-
-  - name: Node.js Kurulumu
-    if: steps.detect.outputs.type == 'node'
-    uses: actions/setup-node@v4
-    with:
-      node-version: '20'
-
-  - name: Python Kurulumu
-    if: steps.detect.outputs.type == 'python'
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.11'
-
-  - name: Rust Kurulumu
-    if: steps.detect.outputs.type == 'rust'
-    uses: dtolnay/rust-toolchain@stable
-
-  - name: Go Kurulumu
-    if: steps.detect.outputs.type == 'go'
-    uses: actions/setup-go@v5
-    with:
-      go-version: '1.21'
-
-  - name: Setup Python for DeepSeek
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.11'
-
-  - name: Install OpenAI SDK
-    run: pip install "openai>=1.0.0"
-
-  - name: DeepSeek Kodlama Motoru
-    id: deepseek
+jobs:
+  deepseek:
+    runs-on: ubuntu-latest
     env:
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-      USER_TASK: ${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Proje optimize et' }}
-      MODEL: ${{ steps.model_selector.outputs.model }}
-      BASE_URL: ${{ steps.model_selector.outputs.base_url }}
-      PROJECT_TYPE: ${{ steps.detect.outputs.type }}
-      PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
-    run: |
-      python3 << 'PYTHON_EOF'
-      import os
-      import sys
-      import json
-      import re
-      import time
-      from pathlib import Path
+      GIT_COMMITTER_NAME: "github-actions[bot]"
+      GIT_COMMITTER_EMAIL: "github-actions[bot]@users.noreply.github.com"
 
-      # Helper to safely write outputs to GITHUB_OUTPUT (single-line or multiline)
-      GITHUB_OUTPUT = os.environ.get('GITHUB_OUTPUT', '/dev/null')
-      def write_output(name: str, value: str):
-          try:
-              with open(GITHUB_OUTPUT, 'a') as f:
-                  if '\n' in value:
-                      f.write(f"{name}<<EOF\n")
-                      f.write(value)
-                      if not value.endswith('\n'):
-                          f.write('\n')
-                      f.write("EOF\n")
-                  else:
-                      sanitized = value.replace('\r', '')
-                      f.write(f"{name}={sanitized}\n")
-          except Exception:
-              # don't fail workflow just because we couldn't write outputs
-              pass
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Validate secret early
-      api_key = os.environ.get('DEEPSEEK_API_KEY')
-      if not api_key:
-          msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
-          print(msg)
-          write_output("success", "false")
-          write_output("error", msg)
-          sys.exit(1)
+      - name: Git Yapılandırması
+        run: |
+          git config --global user.name "${GIT_COMMITTER_NAME}"
+          git config --global user.email "${GIT_COMMITTER_EMAIL}"
+          git config --global pull.rebase false
+          git config --global push.autoSetupRemote true
 
-      api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
+      - name: Senkronizasyon
+        run: |
+          set -euo pipefail
+          echo "Uzak değişiklikler kontrol ediliyor..."
+          git fetch origin || true
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+          if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "HEAD" ]; then
+            CURRENT_BRANCH="${GITHUB_REF##*/}"
+          fi
+          echo "Mevcut dal: $CURRENT_BRANCH"
+          if git ls-remote --exit-code origin "$CURRENT_BRANCH" >/dev/null 2>&1; then
+            if git diff --quiet HEAD origin/"$CURRENT_BRANCH" 2>/dev/null; then
+              echo "Yerel ve uzak senkronize."
+            else
+              echo "Uzak değişiklikler birleştiriliyor..."
+              git pull origin "$CURRENT_BRANCH" --no-edit || true
+            fi
+          else
+            echo "Uzakta $CURRENT_BRANCH dalı bulunamadı; devam ediliyor."
+          fi
 
-      # Robust OpenAI client init trying multiple SDK shapes
-      client = None
-      try:
-          try:
-              from openai import OpenAI as OpenAIClientClass
-          except Exception:
-              OpenAIClientClass = None
+      - name: Proje Tipi Algılama
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let projectType = 'general';
+            let projectDetails = [];
+            if (fs.existsSync('build.gradle') || fs.existsSync('app/build.gradle') ||
+                fs.existsSync('build.gradle.kts') || fs.existsSync('settings.gradle') ||
+                fs.existsSync('settings.gradle.kts')) {
+              projectType = 'android';
+              projectDetails.push('Android/Kotlin');
+            }
+            if (fs.existsSync('package.json')) {
+              if (projectType === 'general') projectType = 'node';
+              projectDetails.push('Node.js/JavaScript');
+            }
+            if (fs.existsSync('requirements.txt') || fs.existsSync('pyproject.toml') ||
+                fs.existsSync('setup.py') || fs.existsSync('Pipfile')) {
+              if (projectType === 'general') projectType = 'python';
+              projectDetails.push('Python');
+            }
+            if (fs.existsSync('CMakeLists.txt') || fs.existsSync('Makefile') ||
+                fs.existsSync('meson.build')) {
+              if (projectType === 'general') projectType = 'cpp';
+              projectDetails.push('C/C++');
+            }
+            if (fs.existsSync('Cargo.toml')) {
+              if (projectType === 'general') projectType = 'rust';
+              projectDetails.push('Rust');
+            }
+            if (fs.existsSync('go.mod')) {
+              if (projectType === 'general') projectType = 'go';
+              projectDetails.push('Go');
+            }
+            console.log('Tespit Edilen Tip: ' + projectType);
+            console.log('Detaylar: ' + (projectDetails.join(', ') || 'Genel Proje'));
+            core.setOutput('type', projectType);
+            core.setOutput('details', projectDetails.join(', ') || 'Genel Proje')
 
-          if OpenAIClientClass:
-              # Try common constructor arg names
+      - name: Model Selection
+        id: model_selector
+        run: |
+          TASK="${{ github.event.inputs.task }}"
+          
+          if echo "$TASK" | grep -qiE "(IMO|CMO|ICPC|IOI|olympiad|gold-medal|ultimate reasoning|speciale)"; then
+            echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
+            echo "base_url=https://api.deepseek.com/v3.2_speciale_expires_on_20251215" >> $GITHUB_OUTPUT
+            echo "complexity=speciale" >> $GITHUB_OUTPUT
+          elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure)"; then
+            echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
+            echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
+            echo "complexity=high" >> $GITHUB_OUTPUT
+          else
+            echo "model=deepseek-chat" >> $GITHUB_OUTPUT
+            echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
+            echo "complexity=low" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Java Kurulumu
+        if: steps.detect.outputs.type == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Node.js Kurulumu
+        if: steps.detect.outputs.type == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Python Kurulumu
+        if: steps.detect.outputs.type == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Rust Kurulumu
+        if: steps.detect.outputs.type == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Go Kurulumu
+        if: steps.detect.outputs.type == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Setup Python for DeepSeek
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install OpenAI SDK
+        run: pip install "openai>=1.0.0"
+
+      - name: DeepSeek Kodlama Motoru
+        id: deepseek
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          USER_TASK: ${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Proje optimize et' }}
+          MODEL: ${{ steps.model_selector.outputs.model }}
+          BASE_URL: ${{ steps.model_selector.outputs.base_url }}
+          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
+          PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
+        run: |
+          python3 << 'PYTHON_EOF'
+          import os
+          import sys
+          import json
+          import re
+          import time
+          from pathlib import Path
+
+          # Helper to safely write outputs to GITHUB_OUTPUT (single-line or multiline)
+          GITHUB_OUTPUT = os.environ.get('GITHUB_OUTPUT', '/dev/null')
+          def write_output(name: str, value: str):
               try:
-                  client = OpenAIClientClass(api_key=api_key, api_base=api_base)
-              except TypeError:
+                  with open(GITHUB_OUTPUT, 'a') as f:
+                      if '\n' in value:
+                          f.write(f"{name}<<EOF\n")
+                          f.write(value)
+                          if not value.endswith('\n'):
+                              f.write('\n')
+                          f.write("EOF\n")
+                      else:
+                          sanitized = value.replace('\r', '')
+                          f.write(f"{name}={sanitized}\n")
+              except Exception:
+                  pass
+
+          # Validate secret early
+          api_key = os.environ.get('DEEPSEEK_API_KEY')
+          if not api_key:
+              msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
+              print(msg)
+              write_output("success", "false")
+              write_output("error", msg)
+              sys.exit(1)
+
+          api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
+
+          # Robust OpenAI client init trying multiple SDK shapes
+          client = None
+          try:
+              try:
+                  from openai import OpenAI as OpenAIClientClass
+              except Exception:
+                  OpenAIClientClass = None
+
+              if OpenAIClientClass:
                   try:
-                      client = OpenAIClientClass(api_key=api_key, base_url=api_base)
+                      client = OpenAIClientClass(api_key=api_key, api_base=api_base)
                   except TypeError:
-                      client = None
+                      try:
+                          client = OpenAIClientClass(api_key=api_key, base_url=api_base)
+                      except TypeError:
+                          client = None
 
-          if client is None:
-              import openai as openai_module
-              openai_module.api_key = api_key
-              # set api base if available
-              if hasattr(openai_module, "api_base"):
-                  openai_module.api_base = api_base
-              elif hasattr(openai_module, "base_url"):
-                  openai_module.base_url = api_base
-              client = openai_module
+              if client is None:
+                  import openai as openai_module
+                  openai_module.api_key = api_key
+                  if hasattr(openai_module, "api_base"):
+                      openai_module.api_base = api_base
+                  elif hasattr(openai_module, "base_url"):
+                      openai_module.base_url = api_base
+                  client = openai_module
 
-      except Exception as e:
-          err = f"Client init error: {str(e)}"
-          print("OpenAI istemcisi başlatılamadı:", err)
-          write_output("success", "false")
-          write_output("error", err)
-          sys.exit(1)
-
-      # Scan repository files for context
-      fileList = []
-      repoContext = ""
-      ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
-      codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.php', '.rb', '.pl', '.swift', '.sh', '.ps1'}
-
-      def scanDirectory(directory, depth=0):
-          global fileList, repoContext
-          if depth > 10 or not Path(directory).exists():
-              return
-          try:
-              for item in Path(directory).iterdir():
-                  if item.name.startswith('.') and item.name != '.gitignore':
-                      continue
-                  if item.is_dir():
-                      if item.name not in ignoreDirs:
-                          scanDirectory(item, depth + 1)
-                  elif item.is_file():
-                      if item.suffix.lower() in codeExtensions or item.name in ['Dockerfile', 'Makefile', 'CMakeLists.txt']:
-                          try:
-                              content = item.read_text(encoding='utf-8')
-                              if len(content) < 100000:
-                                  relPath = str(item.relative_to('.'))
-                                  repoContext += f"\n=== {relPath} ===\n{content}\n"
-                                  fileList.append(relPath)
-                          except Exception:
-                              pass
-          except Exception:
-              pass
-
-      scanDirectory('.')
-      print(f"Taranan dosya: {len(fileList)}")
-
-      # Proper triple-quoted f-string (no escaped quotes)
-      systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
-
-      PROJE BILGISI:
-      - Tip: {os.environ.get('PROJECT_TYPE')}
-      - Detaylar: {os.environ.get('PROJECT_DETAILS')}
-      - Model: {os.environ.get('MODEL')} (DeepSeek-V3.2 Ailesi)
-
-      GÖREV:
-      {os.environ.get('USER_TASK')}
-
-      DOSYA YAZMA FORMATI:
-      ---FILE: dosya/yolu/isim.uzanti---
-      [dosya içeriği]
-      ---END---
-
-      DOSYA SILME FORMATI:
-      ---DELETE: dosya/yolu/isim.uzanti---
-      ---END---
-
-      DİZİN SILME FORMATI:
-      ---DELETEDIR: klasor/yolu---
-      ---END---
-
-      KURALLAR:
-      ✅ Tam çalışan, production-ready kod yaz
-      ✅ Hata yönetimi ekle
-      ✅ Türkçe yorum ekle
-      ✅ Best practices uygula
-      ✅ Test kodunu dahil et
-      ❌ Markdown code block kullanma (backtick yok)
-      ❌ Eksik kod yazma
-      ❌ Placeholder bırakma
-
-      MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
-
-      # Wrapper functions to call chat completion across SDK variants
-      def create_chat_completion(model, messages, **kwargs):
-          # New style client
-          try:
-              if hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
-                  return client.chat.completions.create(model=model, messages=messages, **kwargs)
-          except Exception:
-              pass
-          # Module-level fallback
-          try:
-              import openai as _openai
-              return _openai.ChatCompletion.create(model=model, messages=messages, **kwargs)
           except Exception as e:
-              raise e
+              err = f"Client init error: {str(e)}"
+              print("OpenAI istemcisi başlatılamadı:", err)
+              write_output("success", "false")
+              write_output("error", err)
+              sys.exit(1)
 
-      def extract_text_from_response(response):
-          try:
-              return response.choices[0].message.content
-          except Exception:
-              pass
-          try:
-              return response['choices'][0]['message']['content']
-          except Exception:
-              pass
-          try:
-              return response.choices[0].text
-          except Exception:
-              pass
-          raise Exception("Yanıttan metin çıkarılamadı")
+          # Scan repository files for context
+          fileList = []
+          repoContext = ""
+          ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
+          codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.php', '.rb', '.pl', '.swift', '.sh', '.ps1'}
 
-      # API çağrısı için retry/backoff
-      max_retries = 3
-      backoff = 2
-      last_exc = None
-      aiResponse = None
-
-      try:
-          print("DeepSeek API çağrısı başlıyor...")
-          print(f"Model: {os.environ.get('MODEL')}")
-          print(f"Base URL: {api_base}")
-
-          for attempt in range(1, max_retries + 1):
+          def scanDirectory(directory, depth=0):
+              global fileList, repoContext
+              if depth > 10 or not Path(directory).exists():
+                  return
               try:
-                  response = create_chat_completion(
-                      model=os.environ.get('MODEL'),
-                      messages=[
-                          {"role": "system", "content": systemPrompt},
-                          {"role": "user", "content": repoContext or "Boş proje - sıfırdan başla"}
-                      ],
-                      max_tokens=16000,
-                      temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
-                      stream=False,
-                  )
-                  aiResponse = extract_text_from_response(response)
-                  print("AI yanıtı alındı")
-                  break
+                  for item in Path(directory).iterdir():
+                      if item.name.startswith('.') and item.name != '.gitignore':
+                          continue
+                      if item.is_dir():
+                          if item.name not in ignoreDirs:
+                              scanDirectory(item, depth + 1)
+                      elif item.is_file():
+                          if item.suffix.lower() in codeExtensions or item.name in ['Dockerfile', 'Makefile', 'CMakeLists.txt']:
+                              try:
+                                  content = item.read_text(encoding='utf-8')
+                                  if len(content) < 100000:
+                                      relPath = str(item.relative_to('.'))
+                                      repoContext += f"\n=== {relPath} ===\n{content}\n"
+                                      fileList.append(relPath)
+                              except Exception:
+                                  pass
+              except Exception:
+                  pass
+
+          scanDirectory('.')
+          print(f"Taranan dosya: {len(fileList)}")
+
+          systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
+
+          PROJE BILGISI:
+          - Tip: {os.environ.get('PROJECT_TYPE')}
+          - Detaylar: {os.environ.get('PROJECT_DETAILS')}
+          - Model: {os.environ.get('MODEL')} (DeepSeek-V3.2 Ailesi)
+
+          GÖREV:
+          {os.environ.get('USER_TASK')}
+
+          DOSYA YAZMA FORMATI:
+          ---FILE: dosya/yolu/isim.uzanti---
+          [dosya içeriği]
+          ---END---
+
+          DOSYA SILME FORMATI:
+          ---DELETE: dosya/yolu/isim.uzanti---
+          ---END---
+
+          DİZİN SILME FORMATI:
+          ---DELETEDIR: klasor/yolu---
+          ---END---
+
+          KURALLAR:
+          ✅ Tam çalışan, production-ready kod yaz
+          ✅ Hata yönetimi ekle
+          ✅ Türkçe yorum ekle
+          ✅ Best practices uygula
+          ✅ Test kodunu dahil et
+          ❌ Markdown code block kullanma (backtick yok)
+          ❌ Eksik kod yazma
+          ❌ Placeholder bırakma
+
+          MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
+
+          def create_chat_completion(model, messages, **kwargs):
+              try:
+                  if hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
+                      return client.chat.completions.create(model=model, messages=messages, **kwargs)
+              except Exception:
+                  pass
+              try:
+                  import openai as _openai
+                  return _openai.ChatCompletion.create(model=model, messages=messages, **kwargs)
               except Exception as e:
-                  last_exc = e
-                  print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {e}")
-                  if attempt < max_retries:
-                      sleep_time = backoff ** attempt
-                      print(f"{sleep_time}s beklenip tekrar deneniyor...")
-                      time.sleep(sleep_time)
-                  else:
-                      raise
+                  raise e
 
-          if aiResponse is None:
-              raise Exception(f"No response from API. Last error: {last_exc}")
+          def extract_text_from_response(response):
+              try:
+                  return response.choices[0].message.content
+              except Exception:
+                  pass
+              try:
+                  return response['choices'][0]['message']['content']
+              except Exception:
+                  pass
+              try:
+                  return response.choices[0].text
+              except Exception:
+                  pass
+              raise Exception("Yanıttan metin çıkarılamadı")
 
-          operations = []
+          max_retries = 3
+          backoff = 2
+          last_exc = None
+          aiResponse = None
 
-          for match in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
-              dirPath = match.group(1).strip()
-              if Path(dirPath).exists() and Path(dirPath).is_dir():
-                  import shutil
-                  shutil.rmtree(dirPath)
-                  operations.append(f"Klasör silindi: {dirPath}")
-                  print(f"Klasör silindi: {dirPath}")
+          try:
+              print("DeepSeek API çağrısı başlıyor...")
+              print(f"Model: {os.environ.get('MODEL')}")
+              print(f"Base URL: {api_base}")
 
-          for match in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
-              filePath = match.group(1).strip()
-              if Path(filePath).exists():
-                  Path(filePath).unlink()
-                  operations.append(f"Dosya silindi: {filePath}")
-                  print(f"Dosya silindi: {filePath}")
+              for attempt in range(1, max_retries + 1):
+                  try:
+                      response = create_chat_completion(
+                          model=os.environ.get('MODEL'),
+                          messages=[
+                              {"role": "system", "content": systemPrompt},
+                              {"role": "user", "content": repoContext or "Boş proje - sıfırdan başla"}
+                          ],
+                          max_tokens=16000,
+                          temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
+                          stream=False,
+                      )
+                      aiResponse = extract_text_from_response(response)
+                      print("AI yanıtı alındı")
+                      break
+                  except Exception as e:
+                      last_exc = e
+                      print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {e}")
+                      if attempt < max_retries:
+                          sleep_time = backoff ** attempt
+                          print(f"{sleep_time}s beklenip tekrar deneniyor...")
+                          time.sleep(sleep_time)
+                      else:
+                          raise
 
-          for match in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
-              filePath = match.group(1).strip()
-              content = match.group(2).rstrip()
+              if aiResponse is None:
+                  raise Exception(f"No response from API. Last error: {last_exc}")
 
-              dirPath = Path(filePath).parent
-              if dirPath != Path('.'):
-                  dirPath.mkdir(parents=True, exist_ok=True)
+              operations = []
 
-              Path(filePath).write_text(content, encoding='utf-8')
-              operations.append(f"Yazıldı: {filePath}")
-              print(f"Yazıldı: {filePath}")
+              for match in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
+                  dirPath = match.group(1).strip()
+                  if Path(dirPath).exists() and Path(dirPath).is_dir():
+                      import shutil
+                      shutil.rmtree(dirPath)
+                      operations.append(f"Klasör silindi: {dirPath}")
+                      print(f"Klasör silindi: {dirPath}")
 
-          # Write outputs safely (operations could be multiline)
-          write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
-          write_output("count", str(len(operations)))
-          write_output("success", "true")
+              for match in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
+                  filePath = match.group(1).strip()
+                  if Path(filePath).exists():
+                      Path(filePath).unlink()
+                      operations.append(f"Dosya silindi: {filePath}")
+                      print(f"Dosya silindi: {filePath}")
 
-      except Exception as e:
-          err = str(e)
-          print(f"Hata: {err}")
-          write_output("operations", "İşlem yapılamadı")
-          write_output("count", "0")
-          write_output("success", "false")
-          write_output("error", err)
-          sys.exit(1)
-      PYTHON_EOF
+              for match in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
+                  filePath = match.group(1).strip()
+                  content = match.group(2).rstrip()
 
-  - name: Derleme
-    id: build
-    if: steps.deepseek.outputs.success == 'true'
-    continue-on-error: true
-    run: |
-      set -euo pipefail
-      TYPE="${{ steps.detect.outputs.type }}"
-      echo "Derleme başlatılıyor... (Tip: $TYPE)"
-      case "$TYPE" in
-        android)
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-            ./gradlew assembleDebug -Pkotlin.suppressVersionCompatibilityCheck=true --no-daemon && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Derleme hatası" >> $GITHUB_ENV
+                  dirPath = Path(filePath).parent
+                  if dirPath != Path('.'):
+                      dirPath.mkdir(parents=True, exist_ok=True)
+
+                  Path(filePath).write_text(content, encoding='utf-8')
+                  operations.append(f"Yazıldı: {filePath}")
+                  print(f"Yazıldı: {filePath}")
+
+              write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
+              write_output("count", str(len(operations)))
+              write_output("success", "true")
+
+          except Exception as e:
+              err = str(e)
+              print(f"Hata: {err}")
+              write_output("operations", "İşlem yapılamadı")
+              write_output("count", "0")
+              write_output("success", "false")
+              write_output("error", err)
+              sys.exit(1)
+          PYTHON_EOF
+
+      - name: Derleme
+        id: build
+        if: steps.deepseek.outputs.success == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          TYPE="${{ steps.detect.outputs.type }}"
+          echo "Derleme başlatılıyor... (Tip: $TYPE)"
+          case "$TYPE" in
+            android)
+              if [ -f "gradlew" ]; then
+                chmod +x gradlew
+                ./gradlew assembleDebug -Pkotlin.suppressVersionCompatibilityCheck=true --no-daemon && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Derleme hatası" >> $GITHUB_ENV
+              else
+                echo "BUILD_STATUS=Gradle wrapper bulunamadı" >> $GITHUB_ENV
+              fi
+              ;;
+            node)
+              if [ -f "package.json" ]; then
+                npm ci --silent || npm install --silent
+                npm run build --if-present && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Build hatası" >> $GITHUB_ENV
+              else
+                echo "BUILD_STATUS=package.json bulunamadı" >> $GITHUB_ENV
+              fi
+              ;;
+            python)
+              if [ -f "requirements.txt" ]; then
+                pip install -r requirements.txt --quiet
+              fi
+              echo "BUILD_STATUS=Bağımlılıklar yüklendi" >> $GITHUB_ENV
+              ;;
+            rust)
+              cargo build --release && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Cargo hatası" >> $GITHUB_ENV
+              ;;
+            go)
+              go build ./... && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Go hatası" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "BUILD_STATUS=Derleme gerekmedi" >> $GITHUB_ENV
+              ;;
+          esac
+
+      - name: Değişiklikleri Kaydet
+        if: steps.deepseek.outputs.success == 'true'
+        run: |
+          set -euo pipefail
+          echo "Değişiklikler kontrol ediliyor..."
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Değişiklik yok"
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
           else
-            echo "BUILD_STATUS=Gradle wrapper bulunamadı" >> $GITHUB_ENV
+            echo "Değişiklikler tespit edildi"
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+            TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik güncelleme' }}"
+            TASK_SHORT=$(echo "$TASK" | head -c 100)
+            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Komplek[...]
           fi
-          ;;
-        node)
-          if [ -f "package.json" ]; then
-            npm ci --silent || npm install --silent
-            npm run build --if-present && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Build hatası" >> $GITHUB_ENV
-          else
-            echo "BUILD_STATUS=package.json bulunamadı" >> $GITHUB_ENV
-          fi
-          ;;
-        python)
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt --quiet
-          fi
-          echo "BUILD_STATUS=Bağımlılıklar yüklendi" >> $GITHUB_ENV
-          ;;
-        rust)
-          cargo build --release && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Cargo hatası" >> $GITHUB_ENV
-          ;;
-        go)
-          go build ./... && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Go hatası" >> $GITHUB_ENV
-          ;;
-        *)
-          echo "BUILD_STATUS=Derleme gerekmedi" >> $GITHUB_ENV
-          ;;
-      esac
 
-  - name: Değişiklikleri Kaydet
-    if: steps.deepseek.outputs.success == 'true'
-    run: |
-      set -euo pipefail
-      echo "Değişiklikler kontrol ediliyor..."
-      git add -A
-      if git diff --cached --quiet; then
-        echo "Değişiklik yok"
-        echo "HAS_CHANGES=false" >> $GITHUB_ENV
-      else
-        echo "Değişiklikler tespit edildi"
-        echo "HAS_CHANGES=true" >> $GITHUB_ENV
-        TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik güncelleme' }}"
-        TASK_SHORT=$(echo "$TASK" | head -c 100)
-        git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Komplek[...]
-      fi
+      - name: Değişiklikleri Gönder
+        if: env.HAS_CHANGES == 'true'
+        run: |
+          set -euo pipefail
+          echo "Değişiklikler gönderiliyor..."
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+          git pull origin "$CURRENT_BRANCH" --no-edit || true
+          git push origin "$CURRENT_BRANCH"
+          echo "Push başarılı!"
 
-  - name: Değişiklikleri Gönder
-    if: env.HAS_CHANGES == 'true'
-    run: |
-      set -euo pipefail
-      echo "Değişiklikler gönderiliyor..."
-      CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-      git pull origin "$CURRENT_BRANCH" --no-edit || true
-      git push origin "$CURRENT_BRANCH"
-      echo "Push başarılı!"
-
-  - name: Sonuç Raporu
-    uses: actions/github-script@v7
-    if: always()
-    env:
-      OPERATIONS: ${{ steps.deepseek.outputs.operations }}
-      COUNT: ${{ steps.deepseek.outputs.count }}
-      SUCCESS: ${{ steps.deepseek.outputs.success }}
-      ERROR: ${{ steps.deepseek.outputs.error }}
-      BUILD_STATUS: ${{ env.BUILD_STATUS }}
-      PROJECT_TYPE: ${{ steps.detect.outputs.type }}
-      PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
-      MODEL: ${{ steps.model_selector.outputs.model }}
-      COMPLEXITY: ${{ steps.model_selector.outputs.complexity }}
-    with:
-      script: |
-        const success = process.env.SUCCESS === 'true';
-        const operations = process.env.OPERATIONS || 'İşlem yapılmadı';
-        const count = process.env.COUNT || '0';
-        const buildStatus = process.env.BUILD_STATUS || 'Derleme yapılmadı';
-        const projectType = process.env.PROJECT_TYPE || 'general';
-        const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
-        const model = process.env.MODEL || 'deepseek-chat';
-        const complexity = process.env.COMPLEXITY || 'low';
-        
-        const statusEmoji = success ? '✅ BAŞARILI' : '❌ HATA';
-        let report = '## DeepSeek Ultimate Raporu\n\n';
-        
-        report += '| Özellik | Değer |\n';
-        report += '|---------|-------|\n';
-        report += '| **Durum** | ' + statusEmoji + ' |\n';
-        report += '| **Model** | ' + model + ' |\n';
-        report += '| **Kompleksite** | ' + complexity + ' |\n';
-        report += '| **Proje Tipi** | ' + projectDetails + ' |\n';
-        report += '| **İşlem Sayısı** | ' + count + ' |\n';
-        report += '| **Derleme** | ' + buildStatus + ' |\n\n';
-        
-        if (operations && operations !== 'İşlem yapılmadı') {
-          report += '### Yapılan İşlemler\n' + operations + '\n\n';
-        }
-        
-        if (!success && process.env.ERROR) {
-          report += '### Hata Detayı\n' + process.env.ERROR + '\n\n';
-        }
-        
-        report += '\n---\n*DeepSeek Ultimate v3.2-Güncel (OpenAI SDK) tarafından oluşturuldu*';
-        
-        try {
-          if (context.issue && context.issue.number) {
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: report
-            });
-          } else {
-            core.info(report);
-          }
-        } catch (e) {
-          console.log("Yorum eklenemedi: " + e.message);
-        }
+      - name: Sonuç Raporu
+        uses: actions/github-script@v7
+        if: always()
+        env:
+          OPERATIONS: ${{ steps.deepseek.outputs.operations }}
+          COUNT: ${{ steps.deepseek.outputs.count }}
+          SUCCESS: ${{ steps.deepseek.outputs.success }}
+          ERROR: ${{ steps.deepseek.outputs.error }}
+          BUILD_STATUS: ${{ env.BUILD_STATUS }}
+          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
+          PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
+          MODEL: ${{ steps.model_selector.outputs.model }}
+          COMPLEXITY: ${{ steps.model_selector.outputs.complexity }}
+        with:
+          script: |
+            const success = process.env.SUCCESS === 'true';
+            const operations = process.env.OPERATIONS || 'İşlem yapılmadı';
+            const count = process.env.COUNT || '0';
+            const buildStatus = process.env.BUILD_STATUS || 'Derleme yapılmadı';
+            const projectType = process.env.PROJECT_TYPE || 'general';
+            const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
+            const model = process.env.MODEL || 'deepseek-chat';
+            const complexity = process.env.COMPLEXITY || 'low';
+            
+            const statusEmoji = success ? '✅ BAŞARILI' : '❌ HATA';
+            let report = '## DeepSeek Ultimate Raporu\n\n';
+            
+            report += '| Özellik | Değer |\n';
+            report += '|---------|-------|\n';
+            report += '| **Durum** | ' + statusEmoji + ' |\n';
+            report += '| **Model** | ' + model + ' |\n';
+            report += '| **Kompleksite** | ' + complexity + ' |\n';
+            report += '| **Proje Tipi** | ' + projectDetails + ' |\n';
+            report += '| **İşlem Sayısı** | ' + count + ' |\n';
+            report += '| **Derleme** | ' + buildStatus + ' |\n\n';
+            
+            if (operations && operations !== 'İşlem yapılmadı') {
+              report += '### Yapılan İşlemler\n' + operations + '\n\n';
+            }
+            
+            if (!success && process.env.ERROR) {
+              report += '### Hata Detayı\n' + process.env.ERROR + '\n\n';
+            }
+            
+            report += '\n---\n*DeepSeek Ultimate v3.2-Güncel (OpenAI SDK) tarafından oluşturuldu*';
+            
+            try {
+              if (context.issue && context.issue.number) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: report
+                });
+              } else {
+                core.info(report);
+              }
+            } catch (e) {
+              console.log("Yorum eklenemedi: " + e.message);
+            }
