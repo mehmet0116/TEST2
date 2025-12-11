@@ -1,4 +1,4 @@
-name: DEEPSEEK OMNI v23.0 (DIRECT PUSH)
+name: DEEPSEEK OMNI v23.0 (DIRECT PUSH & AUTO-DETECT)
 on:
   issues:
     types: [opened, edited]
@@ -30,43 +30,53 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 2. ORTAM ANALİZİ VE HAZIRLIK (Node.js ile)
-      - name: 🧠 Analiz ve Kurulum
+      # 2. ORTAM ANALİZİ (DİNAMİK)
+      # Burası projenin ne olduğuna bakar ve ona göre ortamı belirler.
+      - name: 🧠 Ortam Algılayıcı
         id: setup
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            // Proje tipini belirle
             let type = 'general';
-            if (fs.existsSync('build.gradle') || fs.existsSync('app/build.gradle')) type = 'android';
-            else if (fs.existsSync('package.json')) type = 'node';
-            else if (fs.existsSync('requirements.txt')) type = 'python';
             
-            console.log(`✅ Proje Tipi: ${type}`);
+            // Dosyaları kontrol et ve tipi belirle
+            if (fs.existsSync('build.gradle') || fs.existsSync('app/build.gradle') || fs.existsSync('build.gradle.kts')) {
+                type = 'android';
+                console.log("✅ Tespit Edildi: Android Projesi");
+            } else if (fs.existsSync('package.json')) {
+                type = 'node';
+                console.log("✅ Tespit Edildi: Node.js/Web Projesi");
+            } else if (fs.existsSync('requirements.txt') || fs.existsSync('pyproject.toml')) {
+                type = 'python';
+                console.log("✅ Tespit Edildi: Python Projesi");
+            } else {
+                console.log("ℹ️ Tespit Edildi: Genel Proje (C++, PLC, vb.)");
+            }
+            
             core.setOutput('env_type', type);
 
-      # 3. ORTAM KURULUMLARI (Otomatik)
-      - name: ☕ Java (Android)
+      # 3. ORTAM KURULUMLARI (Sadece Gerekiyorsa Çalışır)
+      - name: ☕ Java Kur (Sadece Android ise)
         if: steps.setup.outputs.env_type == 'android'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🟢 Node.js
+      - name: 🟢 Node.js Kur (Sadece Web ise)
         if: steps.setup.outputs.env_type == 'node'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: 🐍 Python
+      - name: 🐍 Python Kur (Sadece Python ise)
         if: steps.setup.outputs.env_type == 'python'
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 4. DEEPSEEK BEYNİ (KODLAMA)
+      # 4. DEEPSEEK BEYNİ (KODLAMA & YÖNETİM)
       - name: ⚡ DeepSeek Kodlama Motoru
         id: coder
         uses: actions/github-script@v7
@@ -80,18 +90,22 @@ jobs:
             const fs = require('fs');
             const path = require('path');
             
-            // Mevcut dosyaları oku (Context)
+            // Mevcut dosyaları oku (Recursive Scan)
             let repoContext = "";
             function scan(dir) {
                 if (!fs.existsSync(dir)) return;
                 const files = fs.readdirSync(dir);
                 for (const f of files) {
-                    if (['.git', 'node_modules', 'build', '.gradle'].includes(f)) continue;
+                    // Gereksiz klasörleri atla
+                    if (['.git', 'node_modules', 'build', '.gradle', 'venv', '__pycache__'].includes(f)) continue;
+                    
                     const fp = path.join(dir, f);
                     if (fs.statSync(fp).isDirectory()) scan(fp);
                     else {
-                        if (fp.match(/\.(js|py|java|kt|xml|gradle|json|md|html|css|txt)$/)) {
-                            if (fs.statSync(fp).size < 15000) {
+                        // Kod dosyalarını tanı (PLC, C++, Java, JS, Python vs.)
+                        if (fp.match(/\.(js|py|java|kt|xml|gradle|json|md|html|css|txt|cpp|h|c|ino|st)$/i)) {
+                            // Çok büyük dosyaları okuma
+                            if (fs.statSync(fp).size < 20000) {
                                 repoContext += `FILE: ${fp}\n${fs.readFileSync(fp, 'utf8')}\n---\n`;
                             }
                         }
@@ -101,16 +115,22 @@ jobs:
             scan('.');
 
             const prompt = `
-            Sen DeepSeek OMNI. Proje Tipi: ${process.env.ENV_TYPE}
+            Sen DeepSeek OMNI. Şu anki Proje Tipi: ${process.env.ENV_TYPE}
             
             GÖREV:
-            Kullanıcı isteğini (${process.env.USER_MSG}) yerine getir.
+            Kullanıcı isteğini (${process.env.USER_MSG}) profesyonelce yerine getir.
             
             KURALLAR:
             1. Tam çalışan, profesyonel kod yaz.
-            2. FORMAT: ---FILE:dosya/yolu--- içerik ---END---
-            3. Düşünce zincirini (Reasoning) kullan.
-            4. Asla markdown (backtick) içine alma.
+            2. FORMAT (ZORUNLU): 
+               ---FILE:dosya/yolu--- 
+               [içerik] 
+               ---END---
+            3. SİLMEK İÇİN:
+               ---DELETE:dosya/yolu---
+               ---END---
+            4. Düşünce zincirini (Reasoning) kullan.
+            5. Asla markdown (backtick) içine alma, ham metin ver.
             `;
 
             try {
@@ -133,16 +153,30 @@ jobs:
                 
                 // Dosyaları Yaz
                 const regex = /---FILE:\s*(.*?)---\n([\s\S]*?)---END---/g;
+                const delRegex = /---DELETE:\s*(.*?)---\n---END---/g;
+                
                 let match;
                 let files = [];
+                
+                // Oluşturma / Güncelleme
                 while ((match = regex.exec(aiReply)) !== null) {
                     const fpath = match[1].trim();
                     const content = match[2].trim();
                     const dir = path.dirname(fpath);
                     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
                     fs.writeFileSync(fpath, content);
-                    files.push(fpath);
+                    files.push(`Yazıldı: ${fpath}`);
                     console.log("Yazıldı:", fpath);
+                }
+                
+                // Silme
+                while ((match = delRegex.exec(aiReply)) !== null) {
+                    const fpath = match[1].trim();
+                    if (fs.existsSync(fpath)) {
+                        fs.unlinkSync(fpath);
+                        files.push(`Silindi: ${fpath}`);
+                        console.log("Silindi:", fpath);
+                    }
                 }
                 
                 // Base64 ile güvenli aktarım
@@ -154,35 +188,36 @@ jobs:
                 core.setFailed(e.message);
             }
 
-      # 5. DERLEME (Build - Hata Olsa Bile Devam Et)
+      # 5. DERLEME (Sadece İlgili Ortam Varsa Çalışır)
       - name: 🏗️ Derleme Kontrolü
         id: build
         run: |
           echo "🔨 Derleme deneniyor..."
+          TYPE="${{ steps.setup.outputs.env_type }}"
           
-          if [ "${{ steps.setup.outputs.env_type }}" == "android" ]; then
+          if [ "$TYPE" == "android" ]; then
              chmod +x gradlew || true
              if ./gradlew assembleDebug; then
                echo "STATUS=BAŞARILI" >> $GITHUB_ENV
              else
                echo "STATUS=HATA (Ama kodlar kaydedildi)" >> $GITHUB_ENV
              fi
-          elif [ "${{ steps.setup.outputs.env_type }}" == "node" ]; then
+          elif [ "$TYPE" == "node" ]; then
              npm install
              npm run build --if-present
              echo "STATUS=TAMAMLANDI" >> $GITHUB_ENV
           else
-             echo "STATUS=DERLEME YOK" >> $GITHUB_ENV
+             echo "STATUS=DERLEME YOK (Genel Proje)" >> $GITHUB_ENV
           fi
         continue-on-error: true
 
-      # 6. KAYDET (Direct Push to Main)
-      - name: 💾 Kaydet ve Yolla
+      # 6. KAYDET (Direct Push to Main - Branch Yok!)
+      - name: 💾 Kaydet ve Yolla (Direct Push)
         run: |
           git config --global user.name "DeepSeek OMNI"
           git config --global user.email "bot@deepseek.com"
           git add .
-          git commit -m "🤖 DeepSeek: ${{ github.event.inputs.task || 'Geliştirme' }}" || echo "Değişiklik yok"
+          git commit -m "🤖 DeepSeek: ${{ github.event.inputs.task || 'Otomatik Geliştirme' }}" || echo "Değişiklik yok"
           git push
 
       # 7. RAPOR
@@ -205,9 +240,8 @@ jobs:
             
             let msg = `### 🚀 DeepSeek OMNI Raporu\n\n`;
             msg += `**Durum:** ${process.env.STATUS}\n`;
-            msg += `**Değişen Dosyalar:** ${process.env.FILES}\n\n`;
+            msg += `**İşlemler:**\n${process.env.FILES}\n\n`;
             msg += `<details><summary>🧠 Modelin Düşünce Süreci</summary>\n\n${thinking.substring(0,3000)}\n</details>\n\n`;
-            msg += `**Cevap Özeti:**\n${reply.substring(0, 500)}`;
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
