@@ -167,12 +167,11 @@ jobs:
           python3 << 'PYTHON_EOF'
           import os
           import sys
-          import json
           import re
           import time
           from pathlib import Path
 
-          # Helper to safely write outputs to GITHUB_OUTPUT (single-line or multiline)
+          # Safely write outputs to GITHUB_OUTPUT (single-line or multiline)
           GITHUB_OUTPUT = os.environ.get('GITHUB_OUTPUT', '/dev/null')
           def write_output(name: str, value: str):
               try:
@@ -185,11 +184,13 @@ jobs:
                           f.write("EOF\n")
                       else:
                           sanitized = value.replace('\r', '')
+                          # remove problematic backticks to avoid file-command parse issues
+                          sanitized = sanitized.replace('`', "'")
                           f.write(f"{name}={sanitized}\n")
               except Exception:
                   pass
 
-          # Validate secret early
+          # Validate secret early (do NOT expose it in logs)
           api_key = os.environ.get('DEEPSEEK_API_KEY')
           if not api_key:
               msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
@@ -200,7 +201,7 @@ jobs:
 
           api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
 
-          # Robust OpenAI client init trying multiple SDK shapes
+          # Robust OpenAI client init: try new client class, then module-level fallback
           client = None
           try:
               try:
@@ -229,11 +230,13 @@ jobs:
           except Exception as e:
               err = f"Client init error: {str(e)}"
               print("OpenAI istemcisi başlatılamadı:", err)
+              # sanitize before writing (remove backticks/newlines)
+              safe_err = err.replace('`', "'").replace('\n', ' ')
               write_output("success", "false")
-              write_output("error", err)
+              write_output("error", safe_err)
               sys.exit(1)
 
-          # Scan repository files for context
+          # Collect repository files
           fileList = []
           repoContext = ""
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
@@ -266,6 +269,7 @@ jobs:
           scanDirectory('.')
           print(f"Taranan dosya: {len(fileList)}")
 
+          # system prompt (proper triple-quoted f-string)
           systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
 
           PROJE BILGISI:
@@ -301,6 +305,7 @@ jobs:
 
           MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
+          # wrapper to call chat completion across SDK variants
           def create_chat_completion(model, messages, **kwargs):
               try:
                   if hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
@@ -328,6 +333,7 @@ jobs:
                   pass
               raise Exception("Yanıttan metin çıkarılamadı")
 
+          # API call with retry/backoff
           max_retries = 3
           backoff = 2
           last_exc = None
@@ -355,7 +361,9 @@ jobs:
                       break
                   except Exception as e:
                       last_exc = e
-                      print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {e}")
+                      # sanitize message for logs and outputs
+                      serr = str(e).replace('`', "'")
+                      print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {serr}")
                       if attempt < max_retries:
                           sleep_time = backoff ** attempt
                           print(f"{sleep_time}s beklenip tekrar deneniyor...")
@@ -395,12 +403,13 @@ jobs:
                   operations.append(f"Yazıldı: {filePath}")
                   print(f"Yazıldı: {filePath}")
 
+              # Safely write outputs (operations may be multiline)
               write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
               write_output("count", str(len(operations)))
               write_output("success", "true")
 
           except Exception as e:
-              err = str(e)
+              err = str(e).replace('`', "'")
               print(f"Hata: {err}")
               write_output("operations", "İşlem yapılamadı")
               write_output("count", "0")
@@ -465,7 +474,7 @@ jobs:
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
             TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik güncelleme' }}"
             TASK_SHORT=$(echo "$TASK" | head -c 100)
-            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Komplek[...]
+            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Komplek[...]" || true
           fi
 
       - name: Değişiklikleri Gönder
