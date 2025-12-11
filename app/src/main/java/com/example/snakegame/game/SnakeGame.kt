@@ -5,12 +5,50 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.abs
 
-data class Position(val x: Int, val y: Int)
-
-enum class Direction {
-    UP, DOWN, LEFT, RIGHT
+/**
+ * Yılan oyunu için pozisyon veri sınıfı
+ * @param x X koordinatı
+ * @param y Y koordinatı
+ */
+data class Position(val x: Int, val y: Int) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Position) return false
+        return x == other.x && y == other.y
+    }
+    
+    override fun hashCode(): Int = 31 * x + y
 }
 
+/**
+ * Yılan hareket yönleri
+ */
+enum class Direction {
+    UP, DOWN, LEFT, RIGHT;
+    
+    /**
+     * Verilen yönün tersini döndürür
+     */
+    fun opposite(): Direction = when (this) {
+        UP -> DOWN
+        DOWN -> UP
+        LEFT -> RIGHT
+        RIGHT -> LEFT
+    }
+    
+    /**
+     * Yön değişikliği geçerli mi kontrol eder
+     */
+    fun isValidChange(newDirection: Direction): Boolean {
+        return this.opposite() != newDirection
+    }
+}
+
+/**
+ * Yılan oyunu ana sınıfı
+ * @param gridWidth Oyun alanı genişliği (varsayılan: 20)
+ * @param gridHeight Oyun alanı yüksekliği (varsayılan: 20)
+ */
 class SnakeGame(
     private val gridWidth: Int = 20,
     private val gridHeight: Int = 20
@@ -20,6 +58,7 @@ class SnakeGame(
     
     private var currentDirection = Direction.RIGHT
     private var nextDirection = Direction.RIGHT
+    private var isDirectionChangedThisFrame = false
     
     private val initialSnake = listOf(
         Position(gridWidth / 2, gridHeight / 2),
@@ -31,6 +70,9 @@ class SnakeGame(
         resetGame()
     }
     
+    /**
+     * Oyunu sıfırlar
+     */
     fun resetGame() {
         val newFood = generateFood(initialSnake)
         _gameState.value = GameState(
@@ -38,66 +80,61 @@ class SnakeGame(
             food = newFood,
             score = 0,
             isGameOver = false,
-            isPaused = false
+            isPaused = false,
+            foodEaten = false
         )
         currentDirection = Direction.RIGHT
         nextDirection = Direction.RIGHT
+        isDirectionChangedThisFrame = false
     }
     
+    /**
+     * Yılanın yönünü değiştirir
+     * @param direction Yeni yön
+     */
     fun setDirection(direction: Direction) {
-        // Yön değişikliği için geçersiz hareketleri engelle (ters yöne gitme)
-        when (direction) {
-            Direction.UP -> if (currentDirection != Direction.DOWN) nextDirection = direction
-            Direction.DOWN -> if (currentDirection != Direction.UP) nextDirection = direction
-            Direction.LEFT -> if (currentDirection != Direction.RIGHT) nextDirection = direction
-            Direction.RIGHT -> if (currentDirection != Direction.LEFT) nextDirection = direction
+        // Aynı frame içinde birden fazla yön değişikliğini engelle
+        if (isDirectionChangedThisFrame) return
+        
+        // Geçerli yön değişikliği kontrolü
+        if (currentDirection.isValidChange(direction)) {
+            nextDirection = direction
+            isDirectionChangedThisFrame = true
         }
     }
     
+    /**
+     * Oyun durumunu günceller
+     */
     fun update() {
         val currentState = _gameState.value
         if (currentState.isGameOver || currentState.isPaused) return
         
-        // Yönü güncelle
+        // Yönü güncelle ve flag'i sıfırla
         currentDirection = nextDirection
+        isDirectionChangedThisFrame = false
         
         val head = currentState.snake.first()
-        val newHead = when (currentDirection) {
-            Direction.UP -> Position(head.x, head.y - 1)
-            Direction.DOWN -> Position(head.x, head.y + 1)
-            Direction.LEFT -> Position(head.x - 1, head.y)
-            Direction.RIGHT -> Position(head.x + 1, head.y)
-        }
+        val newHead = calculateNewHead(head, currentDirection)
         
-        // Oyun alanı sınırlarını kontrol et (duvarlardan geçme)
-        if (newHead.x < 0 || newHead.x >= gridWidth || 
-            newHead.y < 0 || newHead.y >= gridHeight) {
+        // Çarpışma kontrolleri
+        if (checkWallCollision(newHead) || checkSelfCollision(newHead, currentState.snake)) {
             _gameState.value = currentState.copy(isGameOver = true)
             return
         }
         
-        // Kendine çarpma kontrolü
-        if (currentState.snake.any { it.x == newHead.x && it.y == newHead.y }) {
-            _gameState.value = currentState.copy(isGameOver = true)
-            return
-        }
-        
+        // Yeni yılan pozisyonlarını oluştur
         val newSnake = mutableListOf<Position>()
         newSnake.add(newHead)
         newSnake.addAll(currentState.snake)
         
         // Yemek yeme kontrolü
-        var newFood = currentState.food
-        var newScore = currentState.score
-        var foodEaten = false
+        val isFoodEaten = newHead == currentState.food
+        val newScore = if (isFoodEaten) currentState.score + 10 else currentState.score
+        val newFood = if (isFoodEaten) generateFood(newSnake) else currentState.food
         
-        if (newHead.x == currentState.food.x && newHead.y == currentState.food.y) {
-            // Yemek yendi, yılan büyümesin (baş ekledik, kuyruğu çıkarmayacağız)
-            newScore += 10
-            newFood = generateFood(newSnake)
-            foodEaten = true
-        } else {
-            // Yemek yenmedi, yılanın kuyruğunu çıkar
+        // Yemek yenmediyse kuyruğu çıkar
+        if (!isFoodEaten) {
             newSnake.removeLast()
         }
         
@@ -105,37 +142,89 @@ class SnakeGame(
             snake = newSnake,
             food = newFood,
             score = newScore,
-            foodEaten = foodEaten
+            foodEaten = isFoodEaten
         )
     }
     
+    /**
+     * Yeni kafa pozisyonunu hesaplar
+     */
+    private fun calculateNewHead(head: Position, direction: Direction): Position {
+        return when (direction) {
+            Direction.UP -> Position(head.x, head.y - 1)
+            Direction.DOWN -> Position(head.x, head.y + 1)
+            Direction.LEFT -> Position(head.x - 1, head.y)
+            Direction.RIGHT -> Position(head.x + 1, head.y)
+        }
+    }
+    
+    /**
+     * Duvar çarpışmasını kontrol eder
+     */
+    private fun checkWallCollision(position: Position): Boolean {
+        return position.x < 0 || position.x >= gridWidth ||
+               position.y < 0 || position.y >= gridHeight
+    }
+    
+    /**
+     * Kendine çarpma kontrolü (optimize edilmiş versiyon)
+     */
+    private fun checkSelfCollision(head: Position, snake: List<Position>): Boolean {
+        // Baş hariç diğer segmentleri kontrol et
+        for (i in 1 until snake.size) {
+            if (snake[i] == head) return true
+        }
+        return false
+    }
+    
+    /**
+     * Oyunu duraklat/devam ettir
+     */
     fun togglePause() {
         _gameState.value = _gameState.value.copy(isPaused = !_gameState.value.isPaused)
     }
     
+    /**
+     * Rastgele yemek pozisyonu oluşturur (optimize edilmiş)
+     */
     private fun generateFood(snake: List<Position>): Position {
-        val availablePositions = mutableListOf<Position>()
+        // Boş hücreleri bul
+        val emptyCells = mutableListOf<Position>()
+        
+        // Grid boyutuna göre optimize edilmiş boş hücre bulma
+        val snakeSet = snake.toSet()
         
         for (x in 0 until gridWidth) {
             for (y in 0 until gridHeight) {
                 val pos = Position(x, y)
-                if (snake.none { it.x == pos.x && it.y == pos.y }) {
-                    availablePositions.add(pos)
+                if (!snakeSet.contains(pos)) {
+                    emptyCells.add(pos)
                 }
             }
         }
         
-        return if (availablePositions.isNotEmpty()) {
-            availablePositions.random()
+        return if (emptyCells.isNotEmpty()) {
+            emptyCells.random()
         } else {
-            Position(0, 0) // Fallback, boş pozisyon yoksa
+            // Boş hücre yoksa (nadir durum) ilk pozisyonu döndür
+            Position(0, 0)
         }
+    }
+    
+    /**
+     * Oyun hızını ayarlar
+     */
+    fun setGameSpeed(speed: Int) {
+        // Hız ayarı için gelecekte kullanılabilir
     }
     
     fun getGridWidth(): Int = gridWidth
     fun getGridHeight(): Int = gridHeight
 }
 
+/**
+ * Oyun durumu veri sınıfı
+ */
 data class GameState(
     val snake: List<Position> = emptyList(),
     val food: Position = Position(0, 0),

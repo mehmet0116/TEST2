@@ -1,7 +1,10 @@
 package com.example.snakegame.ui.screens
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,7 +33,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +49,7 @@ import com.example.snakegame.ui.theme.GameGridLight
 import com.example.snakegame.ui.theme.SnakeDarkGreen
 import com.example.snakegame.ui.theme.SnakeGreen
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.min
 
 @Composable
@@ -51,8 +58,10 @@ fun GameScreen(
     onBackToMenu: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
+    val context = LocalContext.current
     val screenWidth = configuration.screenWidthDp
     val screenHeight = configuration.screenHeightDp
+    val coroutineScope = rememberCoroutineScope()
     
     // Oyun tahtası boyutunu ekrana uygun şekilde ayarla
     val gridSize = min(screenWidth, screenHeight * 0.7f).toInt()
@@ -60,6 +69,10 @@ fun GameScreen(
     
     val game = remember { SnakeGame() }
     val gameState by game.gameState
+    
+    // Animasyon değerleri
+    val foodAnimation = remember { Animatable(0.4f) }
+    val snakeAnimation = remember { Animatable(1f) }
     
     // Oyun döngüsü
     LaunchedEffect(Unit) {
@@ -70,6 +83,20 @@ fun GameScreen(
             } else {
                 delay(100)
             }
+        }
+    }
+    
+    // Yemek yendiğinde animasyon
+    LaunchedEffect(gameState.foodEaten) {
+        if (gameState.foodEaten) {
+            foodAnimation.animateTo(
+                targetValue = 0.8f,
+                animationSpec = tween(durationMillis = 200)
+            )
+            foodAnimation.animateTo(
+                targetValue = 0.4f,
+                animationSpec = tween(durationMillis = 200)
+            )
         }
     }
     
@@ -107,6 +134,33 @@ fun GameScreen(
                 modifier = Modifier
                     .size(gridSize.dp)
                     .background(Color.White)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { offset ->
+                                // Ekrana dokunma ile yön kontrolü
+                                val cellWidth = size.width / 20
+                                val cellHeight = size.height / 20
+                                val tapX = offset.x / cellWidth
+                                val tapY = offset.y / cellHeight
+                                
+                                // Dokunulan pozisyona göre yön belirle
+                                val head = gameState.snake.firstOrNull() ?: return@detectTapGestures
+                                val deltaX = tapX - head.x
+                                val deltaY = tapY - head.y
+                                
+                                val direction = when {
+                                    abs(deltaX) > abs(deltaY) -> {
+                                        if (deltaX > 0) Direction.RIGHT else Direction.LEFT
+                                    }
+                                    else -> {
+                                        if (deltaY > 0) Direction.DOWN else Direction.UP
+                                    }
+                                }
+                                
+                                game.setDirection(direction)
+                            }
+                        )
+                    }
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val cellWidth = size.width / 20
@@ -134,62 +188,86 @@ fun GameScreen(
                     gameState.snake.forEachIndexed { index, position ->
                         val isHead = index == 0
                         val snakeColor = if (isHead) SnakeDarkGreen else SnakeGreen
+                        val scale = if (isHead) snakeAnimation.value else 1f
+                        
+                        val scaledWidth = cellWidth * scale
+                        val scaledHeight = cellHeight * scale
+                        val offsetX = (cellWidth - scaledWidth) / 2
+                        val offsetY = (cellHeight - scaledHeight) / 2
                         
                         drawRect(
                             color = snakeColor,
                             topLeft = Offset(
-                                position.x * cellWidth,
-                                position.y * cellHeight
+                                position.x * cellWidth + offsetX,
+                                position.y * cellHeight + offsetY
                             ),
-                            size = Size(cellWidth, cellHeight)
+                            size = Size(scaledWidth, scaledHeight)
                         )
                         
                         // Baş için gözler
                         if (isHead) {
-                            val eyeSize = cellWidth * 0.2f
-                            val eyeOffset = cellWidth * 0.3f
+                            val eyeSize = cellWidth * 0.15f
+                            val eyeOffsetX = cellWidth * 0.25f
+                            val eyeOffsetY = cellHeight * 0.25f
                             
                             drawCircle(
                                 color = Color.White,
                                 center = Offset(
-                                    position.x * cellWidth + eyeOffset,
-                                    position.y * cellHeight + eyeOffset
+                                    position.x * cellWidth + eyeOffsetX,
+                                    position.y * cellHeight + eyeOffsetY
                                 ),
                                 radius = eyeSize
                             )
                             drawCircle(
                                 color = Color.White,
                                 center = Offset(
-                                    (position.x + 1) * cellWidth - eyeOffset,
-                                    position.y * cellHeight + eyeOffset
+                                    (position.x + 1) * cellWidth - eyeOffsetX,
+                                    position.y * cellHeight + eyeOffsetY
                                 ),
                                 radius = eyeSize
+                            )
+                            
+                            // Göz bebekleri
+                            val pupilSize = eyeSize * 0.5f
+                            drawCircle(
+                                color = Color.Black,
+                                center = Offset(
+                                    position.x * cellWidth + eyeOffsetX,
+                                    position.y * cellHeight + eyeOffsetY
+                                ),
+                                radius = pupilSize
+                            )
+                            drawCircle(
+                                color = Color.Black,
+                                center = Offset(
+                                    (position.x + 1) * cellWidth - eyeOffsetX,
+                                    position.y * cellHeight + eyeOffsetY
+                                ),
+                                radius = pupilSize
                             )
                         }
                     }
                     
-                    // Yemeği çiz
+                    // Yemeği çiz (animasyonlu)
+                    val foodRadius = cellWidth * 0.4f * foodAnimation.value
                     drawCircle(
                         color = FoodRed,
                         center = Offset(
                             gameState.food.x * cellWidth + cellWidth / 2,
                             gameState.food.y * cellHeight + cellHeight / 2
                         ),
-                        radius = cellWidth * 0.4f
+                        radius = foodRadius
                     )
                     
-                    // Yılan yemek yediğinde efekti göster
-                    if (gameState.foodEaten) {
-                        drawCircle(
-                            color = FoodRed.copy(alpha = 0.5f),
-                            center = Offset(
-                                gameState.food.x * cellWidth + cellWidth / 2,
-                                gameState.food.y * cellHeight + cellHeight / 2
-                            ),
-                            radius = cellWidth * 0.6f,
-                            style = Stroke(width = 3f)
-                        )
-                    }
+                    // Yemek için detaylar
+                    drawCircle(
+                        color = FoodRed.copy(alpha = 0.7f),
+                        center = Offset(
+                            gameState.food.x * cellWidth + cellWidth / 2 - foodRadius * 0.3f,
+                            gameState.food.y * cellHeight + cellHeight / 2 - foodRadius * 0.3f
+                        ),
+                        radius = foodRadius * 0.3f
+                    )
                 }
             }
             
@@ -200,6 +278,17 @@ fun GameScreen(
                 onDirectionChange = { direction ->
                     if (!gameState.isPaused && !gameState.isGameOver) {
                         game.setDirection(direction)
+                        // Yılan animasyonu
+                        coroutineScope.launch {
+                            snakeAnimation.animateTo(
+                                targetValue = 1.1f,
+                                animationSpec = tween(durationMillis = 100)
+                            )
+                            snakeAnimation.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(durationMillis = 100)
+                            )
+                        }
                     }
                 },
                 modifier = Modifier.padding(16.dp)
@@ -214,12 +303,21 @@ fun GameScreen(
                     modifier = Modifier.padding(8.dp)
                 )
             } else if (gameState.isPaused) {
-                Text(
-                    text = "OYUN DURDURULDU",
-                    color = Color.Gray,
-                    fontSize = 24.sp,
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(8.dp)
-                )
+                ) {
+                    Text(
+                        text = "OYUN DURDURULDU",
+                        color = Color.Gray,
+                        fontSize = 24.sp
+                    )
+                    Text(
+                        text = "Devam etmek için duraklatma butonuna basın",
+                        color = Color.Gray,
+                        fontSize = 14.sp
+                    )
+                }
             }
         }
     }
@@ -239,7 +337,10 @@ fun GameHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Geri butonu
-        IconButton(onClick = onBack) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier.size(48.dp)
+        ) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_back),
                 contentDescription = "Geri",
@@ -248,8 +349,15 @@ fun GameHeader(
         }
         
         // Skor gösterimi
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = "SKOR", fontSize = 14.sp, color = Color.Gray)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        ) {
+            Text(
+                text = "SKOR",
+                fontSize = 14.sp,
+                color = Color.Gray
+            )
             Text(
                 text = score.toString(),
                 style = MaterialTheme.typography.titleLarge,
@@ -258,7 +366,10 @@ fun GameHeader(
         }
         
         // Duraklat/Devam et butonu
-        IconButton(onClick = onPauseToggle) {
+        IconButton(
+            onClick = onPauseToggle,
+            modifier = Modifier.size(48.dp)
+        ) {
             Icon(
                 painter = painterResource(id = if (isPaused) R.drawable.ic_play else R.drawable.ic_pause),
                 contentDescription = if (isPaused) "Devam Et" else "Duraklat",
@@ -278,59 +389,68 @@ fun DirectionControls(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Yukarı butonu
-        IconButton(
+        DirectionButton(
+            direction = Direction.UP,
+            iconId = R.drawable.ic_up,
             onClick = { onDirectionChange(Direction.UP) },
             modifier = Modifier.size(64.dp)
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_up),
-                contentDescription = "Yukarı",
-                modifier = Modifier.size(48.dp)
-            )
-        }
+        )
         
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
             // Sol butonu
-            IconButton(
+            DirectionButton(
+                direction = Direction.LEFT,
+                iconId = R.drawable.ic_left,
                 onClick = { onDirectionChange(Direction.LEFT) },
                 modifier = Modifier.size(64.dp)
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_left),
-                    contentDescription = "Sol",
-                    modifier = Modifier.size(48.dp)
-                )
-            }
+            )
             
             Spacer(modifier = Modifier.size(64.dp))
             
             // Sağ butonu
-            IconButton(
+            DirectionButton(
+                direction = Direction.RIGHT,
+                iconId = R.drawable.ic_right,
                 onClick = { onDirectionChange(Direction.RIGHT) },
                 modifier = Modifier.size(64.dp)
-            ) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_right),
-                    contentDescription = "Sağ",
-                    modifier = Modifier.size(48.dp)
-                )
-            }
+            )
         }
         
         // Aşağı butonu
-        IconButton(
+        DirectionButton(
+            direction = Direction.DOWN,
+            iconId = R.drawable.ic_down,
             onClick = { onDirectionChange(Direction.DOWN) },
             modifier = Modifier.size(64.dp)
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_down),
-                contentDescription = "Aşağı",
-                modifier = Modifier.size(48.dp)
-            )
-        }
+        )
+    }
+}
+
+@Composable
+fun DirectionButton(
+    direction: Direction,
+    iconId: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Icon(
+            painter = painterResource(id = iconId),
+            contentDescription = when (direction) {
+                Direction.UP -> "Yukarı"
+                Direction.DOWN -> "Aşağı"
+                Direction.LEFT -> "Sol"
+                Direction.RIGHT -> "Sağ"
+            },
+            modifier = Modifier.size(48.dp),
+            tint = SnakeGreen
+        )
     }
 }
 
