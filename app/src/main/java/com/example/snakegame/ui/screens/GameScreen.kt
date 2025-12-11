@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -49,8 +51,11 @@ import com.example.snakegame.ui.theme.SnakeDarkGreen
 import com.example.snakegame.ui.theme.SnakeGreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
 import timber.log.Timber
 
 @Composable
@@ -77,6 +82,11 @@ fun GameScreen(
     val foodAnimation = remember { Animatable(0.4f) }
     val snakeAnimation = remember { Animatable(1f) }
     val scoreAnimation = remember { Animatable(1f) }
+    
+    // Joystick pozisyonu
+    var joystickCenter by remember { mutableStateOf(Offset.Zero) }
+    var joystickKnobPosition by remember { mutableStateOf(Offset.Zero) }
+    var isDragging by remember { mutableStateOf(false) }
     
     // Oyun döngüsü
     LaunchedEffect(gameState.gameSpeed, gameState.isPaused, gameState.isGameOver) {
@@ -297,8 +307,8 @@ fun GameScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Yön kontrol butonları
-            DirectionControls(
+            // Daire şeklinde joystick kontrolü
+            JoystickControl(
                 onDirectionChange = { direction ->
                     if (!gameState.isPaused && !gameState.isGameOver) {
                         game.setDirection(direction)
@@ -315,7 +325,9 @@ fun GameScreen(
                         }
                     }
                 },
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier
+                    .size(200.dp)
+                    .padding(16.dp)
             )
             
             // Oyun durumu mesajları
@@ -437,76 +449,230 @@ fun GameHeader(
 }
 
 @Composable
-fun DirectionControls(
+fun JoystickControl(
     onDirectionChange: (Direction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
+    var joystickCenter by remember { mutableStateOf(Offset.Zero) }
+    var joystickKnobPosition by remember { mutableStateOf(Offset.Zero) }
+    var isDragging by remember { mutableStateOf(false) }
+    var currentDirection by remember { mutableStateOf<Direction?>(null) }
+    
+    Box(
+        modifier = modifier
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        joystickCenter = Offset(size.width / 2, size.height / 2)
+                        joystickKnobPosition = joystickCenter
+                        isDragging = true
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        
+                        val newPosition = joystickKnobPosition + Offset(dragAmount.x, dragAmount.y)
+                        val maxRadius = size.width / 2 - 30f // 30f knob yarıçapı için boşluk
+                        
+                        // Joystick sınırlarını hesapla
+                        val vector = newPosition - joystickCenter
+                        val distance = sqrt(vector.x * vector.x + vector.y * vector.y)
+                        
+                        val limitedPosition = if (distance > maxRadius) {
+                            val normalized = vector / distance
+                            joystickCenter + normalized * maxRadius
+                        } else {
+                            newPosition
+                        }
+                        
+                        joystickKnobPosition = limitedPosition
+                        
+                        // Yönü hesapla
+                        val angle = atan2(
+                            limitedPosition.y - joystickCenter.y,
+                            limitedPosition.x - joystickCenter.x
+                        )
+                        
+                        val direction = when {
+                            angle >= -Math.PI / 4 && angle < Math.PI / 4 -> Direction.RIGHT
+                            angle >= Math.PI / 4 && angle < 3 * Math.PI / 4 -> Direction.DOWN
+                            angle >= -3 * Math.PI / 4 && angle < -Math.PI / 4 -> Direction.UP
+                            else -> Direction.LEFT
+                        }
+                        
+                        if (currentDirection != direction) {
+                            currentDirection = direction
+                            onDirectionChange(direction)
+                        }
+                    },
+                    onDragEnd = {
+                        // Joystick'i merkeze geri getir
+                        joystickKnobPosition = joystickCenter
+                        isDragging = false
+                        currentDirection = null
+                    },
+                    onDragCancel = {
+                        joystickKnobPosition = joystickCenter
+                        isDragging = false
+                        currentDirection = null
+                    }
+                )
+            }
     ) {
-        // Yukarı butonu
-        DirectionButton(
-            direction = Direction.UP,
-            iconId = R.drawable.ic_up,
-            onClick = { onDirectionChange(Direction.UP) },
-            modifier = Modifier.size(64.dp)
-        )
-        
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Sol butonu
-            DirectionButton(
-                direction = Direction.LEFT,
-                iconId = R.drawable.ic_left,
-                onClick = { onDirectionChange(Direction.LEFT) },
-                modifier = Modifier.size(64.dp)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            joystickCenter = Offset(size.width / 2, size.height / 2)
+            
+            if (joystickKnobPosition == Offset.Zero) {
+                joystickKnobPosition = joystickCenter
+            }
+            
+            // Dış daire (joystick alanı)
+            drawCircle(
+                color = SnakeGreen.copy(alpha = 0.2f),
+                center = joystickCenter,
+                radius = size.width / 2 - 10f,
+                style = Stroke(width = 4f)
             )
             
-            Spacer(modifier = Modifier.size(64.dp))
+            // İç daire (joystick knob'ı)
+            drawCircle(
+                color = if (isDragging) SnakeDarkGreen else SnakeGreen,
+                center = joystickKnobPosition,
+                radius = 30f
+            )
             
-            // Sağ butonu
-            DirectionButton(
-                direction = Direction.RIGHT,
-                iconId = R.drawable.ic_right,
-                onClick = { onDirectionChange(Direction.RIGHT) },
-                modifier = Modifier.size(64.dp)
+            // Yön göstergeleri
+            val indicatorRadius = size.width / 2 - 40f
+            
+            // Yukarı ok
+            drawCircle(
+                color = if (currentDirection == Direction.UP) SnakeDarkGreen else SnakeGreen.copy(alpha = 0.3f),
+                center = Offset(joystickCenter.x, joystickCenter.y - indicatorRadius),
+                radius = 15f
+            )
+            
+            // Aşağı ok
+            drawCircle(
+                color = if (currentDirection == Direction.DOWN) SnakeDarkGreen else SnakeGreen.copy(alpha = 0.3f),
+                center = Offset(joystickCenter.x, joystickCenter.y + indicatorRadius),
+                radius = 15f
+            )
+            
+            // Sol ok
+            drawCircle(
+                color = if (currentDirection == Direction.LEFT) SnakeDarkGreen else SnakeGreen.copy(alpha = 0.3f),
+                center = Offset(joystickCenter.x - indicatorRadius, joystickCenter.y),
+                radius = 15f
+            )
+            
+            // Sağ ok
+            drawCircle(
+                color = if (currentDirection == Direction.RIGHT) SnakeDarkGreen else SnakeGreen.copy(alpha = 0.3f),
+                center = Offset(joystickCenter.x + indicatorRadius, joystickCenter.y),
+                radius = 15f
+            )
+            
+            // Yön okları için çizgiler
+            drawLine(
+                color = SnakeGreen.copy(alpha = 0.5f),
+                start = Offset(joystickCenter.x, joystickCenter.y - 20f),
+                end = Offset(joystickCenter.x, joystickCenter.y - indicatorRadius + 15f),
+                strokeWidth = 2f
+            )
+            
+            drawLine(
+                color = SnakeGreen.copy(alpha = 0.5f),
+                start = Offset(joystickCenter.x, joystickCenter.y + 20f),
+                end = Offset(joystickCenter.x, joystickCenter.y + indicatorRadius - 15f),
+                strokeWidth = 2f
+            )
+            
+            drawLine(
+                color = SnakeGreen.copy(alpha = 0.5f),
+                start = Offset(joystickCenter.x - 20f, joystickCenter.y),
+                end = Offset(joystickCenter.x - indicatorRadius + 15f, joystickCenter.y),
+                strokeWidth = 2f
+            )
+            
+            drawLine(
+                color = SnakeGreen.copy(alpha = 0.5f),
+                start = Offset(joystickCenter.x + 20f, joystickCenter.y),
+                end = Offset(joystickCenter.x + indicatorRadius - 15f, joystickCenter.y),
+                strokeWidth = 2f
+            )
+            
+            // Merkez noktası
+            drawCircle(
+                color = SnakeGreen.copy(alpha = 0.5f),
+                center = joystickCenter,
+                radius = 5f
             )
         }
         
-        // Aşağı butonu
-        DirectionButton(
-            direction = Direction.DOWN,
-            iconId = R.drawable.ic_down,
-            onClick = { onDirectionChange(Direction.DOWN) },
-            modifier = Modifier.size(64.dp)
-        )
+        // Yön etiketleri
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp)
+        ) {
+            // Yukarı
+            Text(
+                text = "YUKARI",
+                color = if (currentDirection == Direction.UP) SnakeDarkGreen else Color.Gray,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 4.dp)
+            )
+            
+            // Aşağı
+            Text(
+                text = "AŞAĞI",
+                color = if (currentDirection == Direction.DOWN) SnakeDarkGreen else Color.Gray,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 4.dp)
+            )
+            
+            // Sol
+            Text(
+                text = "SOL",
+                color = if (currentDirection == Direction.LEFT) SnakeDarkGreen else Color.Gray,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 4.dp)
+            )
+            
+            // Sağ
+            Text(
+                text = "SAĞ",
+                color = if (currentDirection == Direction.RIGHT) SnakeDarkGreen else Color.Gray,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 4.dp)
+            )
+        }
     }
 }
 
-@Composable
-fun DirectionButton(
-    direction: Direction,
-    iconId: Int,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    IconButton(
-        onClick = onClick,
-        modifier = modifier
-    ) {
-        Icon(
-            painter = painterResource(id = iconId),
-            contentDescription = when (direction) {
-                Direction.UP -> "Yukarı"
-                Direction.DOWN -> "Aşağı"
-                Direction.LEFT -> "Sol"
-                Direction.RIGHT -> "Sağ"
-            },
-            modifier = Modifier.size(48.dp),
-            tint = SnakeGreen
-        )
-    }
-}
+// Eski DirectionControls composable'ını kaldırıyoruz
+// @Composable
+// fun DirectionControls(
+//     onDirectionChange: (Direction) -> Unit,
+//     modifier: Modifier = Modifier
+// ) {
+//     // Bu fonksiyon artık kullanılmıyor
+// }
+
+// Eski DirectionButton composable'ını da kaldırıyoruz
+// @Composable
+// fun DirectionButton(
+//     direction: Direction,
+//     iconId: Int,
+//     onClick: () -> Unit,
+//     modifier: Modifier = Modifier
+// ) {
+//     // Bu fonksiyon artık kullanılmıyor
+// }
