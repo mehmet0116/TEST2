@@ -18,12 +18,10 @@ on:
 jobs:
   deepseek:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
       GIT_COMMITTER_NAME: "github-actions[bot]"
       GIT_COMMITTER_EMAIL: "github-actions[bot]@users.noreply.github.com"
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,12 +29,35 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Git Yapilandirmasi
+      - name: Git Yapılandırması
         run: |
           git config --global user.name "${GIT_COMMITTER_NAME}"
           git config --global user.email "${GIT_COMMITTER_EMAIL}"
+          git config --global pull.rebase false
+          git config --global push.autoSetupRemote true
 
-      - name: Proje Tipi Algilama
+      - name: Senkronizasyon
+        run: |
+          set -euo pipefail
+          echo "Uzak değişiklikler kontrol ediliyor..."
+          git fetch origin || true
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+          if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "HEAD" ]; then
+            CURRENT_BRANCH="${GITHUB_REF##*/}"
+          fi
+          echo "Mevcut dal: $CURRENT_BRANCH"
+          if git ls-remote --exit-code origin "$CURRENT_BRANCH" >/dev/null 2>&1; then
+            if git diff --quiet HEAD origin/"$CURRENT_BRANCH" 2>/dev/null; then
+              echo "Yerel ve uzak senkronize."
+            else
+              echo "Uzak değişiklikler birleştiriliyor..."
+              git pull origin "$CURRENT_BRANCH" --no-edit || true
+            fi
+          else
+            echo "Uzakta $CURRENT_BRANCH dalı bulunamadı; devam ediliyor."
+          fi
+
+      - name: Proje Tipi Algılama
         id: detect
         uses: actions/github-script@v7
         with:
@@ -82,14 +103,56 @@ jobs:
         run: |
           TASK="${{ github.event.inputs.task }}"
           
-          if echo "$TASK" | grep -iE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)" > /dev/null; then
+          # 1. Seviye: Çok Zorlu / Yarışma Tipi Görevler (V3.2-Speciale - GEÇİCİ)
+          if echo "$TASK" | grep -qiE "(IMO|CMO|ICPC|IOI|olympiad|gold-medal|ultimate reasoning|speciale)"; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
+            echo "base_url=https://api.deepseek.com/v3.2_speciale_expires_on_20251215" >> $GITHUB_OUTPUT
+            echo "complexity=speciale" >> $GITHUB_OUTPUT
+          
+          # 2. Seviye: Karmaşık Mühendislik Görevleri (V3.2 Reasoner)
+          elif echo "$TASK" | grep -iE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)" > /dev/null; then
+            echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
+            echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
+            echo "complexity=high" >> $GITHUB_OUTPUT
+          
+          # 3. Seviye: Genel / Basit Görevler (V3.2 Chat)
           else
             echo "model=deepseek-chat" >> $GITHUB_OUTPUT
+            echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
+            echo "complexity=low" >> $GITHUB_OUTPUT
           fi
 
+      - name: (Optional) Java Kurulumu
+        if: steps.detect.outputs.type == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: (Optional) Node.js Kurulumu
+        if: steps.detect.outputs.type == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: (Optional) Python Kurulumu
+        if: steps.detect.outputs.type == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: (Optional) Rust Kurulumu
+        if: steps.detect.outputs.type == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: (Optional) Go Kurulumu
+        if: steps.detect.outputs.type == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
       - name: Setup Python for DeepSeek
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -102,188 +165,269 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           USER_TASK: ${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Proje optimize et' }}
           MODEL: ${{ steps.model_selector.outputs.model }}
+          BASE_URL: ${{ steps.model_selector.outputs.base_url }}
           PROJECT_TYPE: ${{ steps.detect.outputs.type }}
           PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
+        run: python3 << 'PYTHON_EOF'
+import os
+import sys
+import json
+import re
+from pathlib import Path
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.environ.get('DEEPSEEK_API_KEY'),
+    base_url=os.environ.get('BASE_URL')
+)
+
+fileList = []
+repoContext = ""
+
+ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
+codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.rb', '.php', '.swift', '.m', '.mm', '.xml', '.json', '.yaml', '.yml', '.toml', '.html', '.css', '.scss', '.sass', '.less', '.md', '.txt', '.rst', '.gradle', '.properties', '.pro', '.sql', '.sh', '.bash', '.zsh', '.ps1', '.dockerfile'}
+
+def scanDirectory(directory, depth=0):
+    global fileList, repoContext
+    if depth > 10 or not Path(directory).exists():
+        return
+    
+    try:
+        for item in Path(directory).iterdir():
+            if item.name.startswith('.') and item.name != '.gitignore':
+                continue
+            
+            if item.is_dir():
+                if item.name not in ignoreDirs:
+                    scanDirectory(item, depth + 1)
+            elif item.is_file():
+                if item.suffix.lower() in codeExtensions or item.name in ['Dockerfile', 'Makefile', 'CMakeLists.txt']: 
+                    try:
+                        content = item.read_text(encoding='utf-8')
+                        if len(content) < 100000:  
+                            relPath = str(item.relative_to('.'))
+                            repoContext += f"\n=== {relPath} ===\n{content}\n"
+                            fileList.append(relPath)
+                    except:  
+                        pass
+    except:  
+        pass
+
+scanDirectory('.')
+print(f"Taranan dosya: {len(fileList)}")
+
+systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin. 
+
+PROJE BILGISI:
+- Tip: {os.environ.get('PROJECT_TYPE')}
+- Detaylar: {os.environ.get('PROJECT_DETAILS')}
+- Model: {os.environ.get('MODEL')} (DeepSeek-V3.2 Ailesi)
+
+GÖREV:  
+{os.environ.get('USER_TASK')}
+
+DOSYA YAZMA FORMATI:
+---FILE: dosya/yolu/isim.uzanti---
+[dosya içeriği]
+---END---
+
+DOSYA SILME FORMATI:
+---DELETE: dosya/yolu/isim.uzanti---
+---END---
+
+DİZİN SILME FORMATI:
+---DELETEDIR: klasor/yolu---
+---END---
+
+KURALLAR:  
+✅ Tam çalışan, production-ready kod yaz
+✅ Hata yönetimi ekle
+✅ Türkçe yorum ekle
+✅ Best practices uygula
+✅ Test kodunu dahil et
+❌ Markdown code block kullanma (backtick yok)
+❌ Eksik kod yazma
+❌ Placeholder bırakma
+
+MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
+
+try:
+    print("DeepSeek API çağrısı başlıyor...")
+    print(f"Model: {os.environ.get('MODEL')}")
+    print(f"Base URL: {os.environ.get('BASE_URL')}")
+    
+    response = client.chat.completions.create(
+        model=os.environ.get('MODEL'),
+        messages=[
+            {"role": "system", "content": systemPrompt},
+            {"role": "user", "content": repoContext or "Boş proje - sıfırdan başla"}
+        ],
+        max_tokens=64000,
+        temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
+        stream=False
+    )
+    
+    aiResponse = response.choices[0].message.content
+    print("AI yanıtı alındı")
+    
+    operations = []
+    
+    for match in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
+        dirPath = match.group(1).strip()
+        if Path(dirPath).exists() and Path(dirPath).is_dir():
+            import shutil
+            shutil.rmtree(dirPath)
+            operations.append(f"Klasör silindi: {dirPath}")
+            print(f"Klasör silindi: {dirPath}")
+    
+    for match in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
+        filePath = match.group(1).strip()
+        if Path(filePath).exists():
+            Path(filePath).unlink()
+            operations.append(f"Dosya silindi: {filePath}")
+            print(f"Dosya silindi: {filePath}")
+    
+    for match in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
+        filePath = match.group(1).strip()
+        content = match.group(2).strip()
+        
+        dirPath = Path(filePath).parent
+        if dirPath != Path('.'):
+            dirPath.mkdir(parents=True, exist_ok=True)
+        
+        Path(filePath).write_text(content, encoding='utf-8')
+        operations.append(f"Yazıldı: {filePath}")
+        print(f"Yazıldı: {filePath}")
+    
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+        f.write(f"operations<<EOF\n")
+        f.write('\n'.join(operations))
+        f.write(f"\nEOF\n")
+        f.write(f"count={len(operations)}\n")
+        f.write(f"success=true\n")
+    
+except Exception as e:
+    print(f"Hata: {str(e)}")
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+        f.write(f"success=false\n")
+        f.write(f"error={str(e)}\n")
+    sys.exit(1)
+PYTHON_EOF
+
+      - name: Derleme
+        id: build
+        if: steps.deepseek.outputs.success == 'true'
+        continue-on-error: true
         run: |
-          python3 << 'PYTHON_EOF'
-          import os
-          import sys
-          import json
-          import re
-          from pathlib import Path
-          from openai import OpenAI
+          set -euo pipefail
+          TYPE="${{ steps.detect.outputs.type }}"
+          echo "Derleme başlatılıyor... (Tip: $TYPE)"
+          case "$TYPE" in
+            android)
+              if [ -f "gradlew" ]; then
+                chmod +x gradlew
+                ./gradlew assembleDebug -Pkotlin.suppressVersionCompatibilityCheck=true --no-daemon && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Derleme hatası" >> $GITHUB_ENV
+              else
+                echo "BUILD_STATUS=Gradle wrapper bulunamadı" >> $GITHUB_ENV
+              fi
+              ;;
+            node)
+              if [ -f "package.json" ]; then
+                npm ci --silent || npm install --silent
+                npm run build --if-present && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Build hatası" >> $GITHUB_ENV
+              else
+                echo "BUILD_STATUS=package.json bulunamadı" >> $GITHUB_ENV
+              fi
+              ;;
+            python)
+              if [ -f "requirements.txt" ]; then
+                pip install -r requirements.txt --quiet
+              fi
+              echo "BUILD_STATUS=Bağımlılıklar yüklendi" >> $GITHUB_ENV
+              ;;
+            rust)
+              cargo build --release && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Cargo hatası" >> $GITHUB_ENV
+              ;;
+            go)
+              go build ./... && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Go hatası" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "BUILD_STATUS=Derleme gerekmedi" >> $GITHUB_ENV
+              ;;
+          esac
 
-          client = OpenAI(
-              api_key=os.environ.get('DEEPSEEK_API_KEY'),
-              base_url="https://api.deepseek.com"
-          )
-
-          fileList = []
-          repoContext = ""
-
-          ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
-          codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.rb', '.php', '.swift', '.m', '.mm', '.xml', '.json', '.yaml', '.yml', '.toml', '.html', '.css', '.scss', '.sass', '.less', '.md', '.txt', '.rst', '.gradle', '.properties', '.pro', '.sql', '.sh', '.bash', '.zsh', '.ps1', '.dockerfile'}
-
-          def scanDirectory(directory, depth=0):
-              global fileList, repoContext
-              if depth > 10 or not Path(directory).exists():
-                  return
-              
-              try:
-                  for item in Path(directory).iterdir():
-                      if item.name.startswith('.') and item.name != '.gitignore':
-                          continue
-                      
-                      if item.is_dir():
-                          if item.name not in ignoreDirs:
-                              scanDirectory(item, depth + 1)
-                      elif item.is_file():
-                          if item.suffix.lower() in codeExtensions or item.name in ['Dockerfile', 'Makefile', 'CMakeLists.txt']: 
-                              try:
-                                  content = item.read_text(encoding='utf-8')
-                                  if len(content) < 100000:
-                                      relPath = str(item.relative_to('.'))
-                                      repoContext += f"\n=== {relPath} ===\n{content}\n"
-                                      fileList.append(relPath)
-                              except:
-                                  pass
-              except:
-                  pass
-
-          scanDirectory('.')
-          print(f"Taranan dosya: {len(fileList)}")
-
-          systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin. 
-
-          PROJE BILGISI:
-          - Tip: {os.environ.get('PROJECT_TYPE')}
-          - Detaylar: {os.environ.get('PROJECT_DETAILS')}
-
-          GÖREV:
-          {os.environ.get('USER_TASK')}
-
-          DOSYA YAZMA FORMATI:
-          ---FILE: dosya/yolu/isim.uzanti---
-          [dosya içeriği]
-          ---END---
-
-          DOSYA SILME FORMATI:
-          ---DELETE: dosya/yolu/isim.uzanti---
-          ---END---
-
-          DİZİN SILME FORMATI:
-          ---DELETEDIR: klasor/yolu---
-          ---END---
-
-          KURALLAR:
-          ✅ Tam çalışan, production-ready kod yaz
-          ✅ Hata yönetimi ekle
-          ✅ Türkçe yorum ekle
-          ✅ Best practices uygula
-          ❌ Markdown code block kullanma (backtick yok)
-          ❌ Eksik kod yazma
-          ❌ Placeholder bırakma
-
-          MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
-
-          try:
-              print("DeepSeek API cagrisi basliyor...")
-              print(f"Model: {os.environ.get('MODEL')}")
-              
-              response = client.chat.completions.create(
-                  model=os.environ.get('MODEL'),
-                  messages=[
-                      {"role": "system", "content": systemPrompt},
-                      {"role": "user", "content": repoContext or "Bos proje - sifirdan basla"}
-                  ],
-                  max_tokens=32000,
-                  temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
-                  stream=False
-              )
-              
-              aiResponse = response.choices[0].message.content
-              print("AI yaniti alindi")
-              
-              operations = []
-              
-              for match in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
-                  dirPath = match.group(1).strip()
-                  if Path(dirPath).exists() and Path(dirPath).is_dir():
-                      import shutil
-                      shutil.rmtree(dirPath)
-                      operations.append(f"Klasor silindi: {dirPath}")
-                      print(f"Klasor silindi: {dirPath}")
-              
-              for match in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
-                  filePath = match.group(1).strip()
-                  if Path(filePath).exists():
-                      Path(filePath).unlink()
-                      operations.append(f"Dosya silindi: {filePath}")
-                      print(f"Dosya silindi: {filePath}")
-              
-              for match in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
-                  filePath = match.group(1).strip()
-                  content = match.group(2).strip()
-                  
-                  dirPath = Path(filePath).parent
-                  if dirPath != Path('.'):
-                      dirPath.mkdir(parents=True, exist_ok=True)
-                  
-                  Path(filePath).write_text(content, encoding='utf-8')
-                  operations.append(f"Yazildi: {filePath}")
-                  print(f"Yazildi: {filePath}")
-              
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"operations<<EOF\n")
-                  f.write('\n'.join(operations))
-                  f.write(f"\nEOF\n")
-                  f.write(f"count={len(operations)}\n")
-                  f.write(f"success=true\n")
-              
-          except Exception as e:
-              print(f"Hata: {str(e)}")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"success=false\n")
-                  f.write(f"error={str(e)}\n")
-              sys.exit(1)
-          PYTHON_EOF
-
-      - name: Degisiklikleri Kaydet ve Gonder
+      - name: Değişiklikleri Kaydet
         if: steps.deepseek.outputs.success == 'true'
         run: |
+          set -euo pipefail
+          echo "Değişiklikler kontrol ediliyor..."
           git add -A
           if git diff --cached --quiet; then
-            echo "Degisiklik yok, commit yapilmiyor."
+            echo "Değişiklik yok"
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
           else
-            TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik guncelleme' }}"
+            echo "Değişiklikler tespit edildi"
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+            TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik güncelleme' }}"
             TASK_SHORT=$(echo "$TASK" | head -c 100)
-            git commit -m "DeepSeek Update: $TASK_SHORT" -m "Islem: ${{ steps.deepseek.outputs.count }}"
-            
-            # Basit Push (Senkronizasyon yok, direkt gonder)
-            git push origin HEAD:${GITHUB_REF##*/}
+            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Kompleksite: ${{ steps.model_selector.outputs.complexity }}" -m "İşlem sayısı: ${{ steps.deepseek.outputs.count }}" -m "Proje tipi: ${{ steps.detect.outputs.type }}"
           fi
 
-      - name: Sonuc Raporu
+      - name: Değişiklikleri Gönder
+        if: env.HAS_CHANGES == 'true'
+        run: |
+          set -euo pipefail
+          echo "Değişiklikler gönderiliyor..."
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+          git pull origin "$CURRENT_BRANCH" --no-edit || true
+          git push origin "$CURRENT_BRANCH"
+          echo "Push başarılı!"
+
+      - name: Sonuç Raporu
         uses: actions/github-script@v7
         if: always()
         env:
           OPERATIONS: ${{ steps.deepseek.outputs.operations }}
+          COUNT: ${{ steps.deepseek.outputs.count }}
           SUCCESS: ${{ steps.deepseek.outputs.success }}
           ERROR: ${{ steps.deepseek.outputs.error }}
+          BUILD_STATUS: ${{ env.BUILD_STATUS }}
+          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
+          PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
+          MODEL: ${{ steps.model_selector.outputs.model }}
+          COMPLEXITY: ${{ steps.model_selector.outputs.complexity }}
         with:
           script: |
             const success = process.env.SUCCESS === 'true';
-            const operations = process.env.OPERATIONS || 'Islem yapilmadi';
+            const operations = process.env.OPERATIONS || 'İşlem yapılmadı';
+            const count = process.env.COUNT || '0';
+            const buildStatus = process.env.BUILD_STATUS || 'Derleme yapılmadı';
+            const projectType = process.env.PROJECT_TYPE || 'general';
+            const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
+            const model = process.env.MODEL || 'deepseek-chat';
+            const complexity = process.env.COMPLEXITY || 'low';
             
-            let report = '## DeepSeek Raporu\n';
-            report += success ? '✅ **İşlem Başarılı**\n\n' : '❌ **Hata Oluştu**\n\n';
+            const statusEmoji = success ? '✅ BAŞARILI' : '❌ HATA';
+            let report = '## DeepSeek Ultimate Raporu\n\n';
             
-            if (operations !== 'Islem yapilmadi') {
-              report += '### Değişiklikler\n' + operations + '\n';
+            report += '| Özellik | Değer |\n';
+            report += '|---------|-------|\n';
+            report += '| **Durum** | ' + statusEmoji + ' |\n';
+            report += '| **Model** | ' + model + ' |\n';
+            report += '| **Kompleksite** | ' + complexity + ' |\n';
+            report += '| **Proje Tipi** | ' + projectDetails + ' |\n';
+            report += '| **İşlem Sayısı** | ' + count + ' |\n';
+            report += '| **Derleme** | ' + buildStatus + ' |\n\n';
+            
+            if (operations && operations !== 'İşlem yapılmadı') {
+              report += '### Yapılan İşlemler\n' + operations + '\n\n';
             }
+            
             if (!success && process.env.ERROR) {
-              report += '### Hata Detayı\n' + process.env.ERROR + '\n';
+              report += '### Hata Detayı\n' + process.env.ERROR + '\n\n';
             }
+            
+            report += '\n---\n*DeepSeek Ultimate v3.2-Güncel (OpenAI SDK) tarafından oluşturuldu*';
             
             try {
               if (context.issue && context.issue.number) {
@@ -296,4 +440,6 @@ jobs:
               } else {
                 core.info(report);
               }
-            } catch (e) { console.log(e); }
+            } catch (e) {
+              console.log("Yorum eklenemedi: " + e.message);
+            }
