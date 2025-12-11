@@ -171,7 +171,7 @@ jobs:
           import time
           from pathlib import Path
 
-          # Safely write outputs to GITHUB_OUTPUT (single-line or multiline)
+          # Helper to safely write outputs to GITHUB_OUTPUT (single-line or multiline)
           GITHUB_OUTPUT = os.environ.get('GITHUB_OUTPUT', '/dev/null')
           def write_output(name: str, value: str):
               try:
@@ -183,14 +183,12 @@ jobs:
                               f.write('\n')
                           f.write("EOF\n")
                       else:
-                          sanitized = value.replace('\r', '')
-                          # remove problematic backticks to avoid file-command parse issues
-                          sanitized = sanitized.replace('`', "'")
+                          sanitized = value.replace('\r', '').replace('`', "'")
                           f.write(f"{name}={sanitized}\n")
               except Exception:
                   pass
 
-          # Validate secret early (do NOT expose it in logs)
+          # Validate secret early (do NOT print it)
           api_key = os.environ.get('DEEPSEEK_API_KEY')
           if not api_key:
               msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
@@ -201,7 +199,7 @@ jobs:
 
           api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
 
-          # Robust OpenAI client init: try new client class, then module-level fallback
+          # Try to initialize OpenAI client class (new SDK). Keep fallback to module import.
           client = None
           try:
               try:
@@ -210,6 +208,7 @@ jobs:
                   OpenAIClientClass = None
 
               if OpenAIClientClass:
+                  # try common constructor names
                   try:
                       client = OpenAIClientClass(api_key=api_key, api_base=api_base)
                   except TypeError:
@@ -220,23 +219,25 @@ jobs:
 
               if client is None:
                   import openai as openai_module
+                  # if we reach here, openai_module may be old or new; set api_key and base if available
                   openai_module.api_key = api_key
                   if hasattr(openai_module, "api_base"):
                       openai_module.api_base = api_base
                   elif hasattr(openai_module, "base_url"):
                       openai_module.base_url = api_base
-                  client = openai_module
+                  # do not set client to openai_module here if openai_module.__version__ >= 1 (we prefer OpenAIClientClass),
+                  # but keep module available for fallback attempts
+                  client = client or openai_module
 
           except Exception as e:
               err = f"Client init error: {str(e)}"
               print("OpenAI istemcisi başlatılamadı:", err)
-              # sanitize before writing (remove backticks/newlines)
               safe_err = err.replace('`', "'").replace('\n', ' ')
               write_output("success", "false")
               write_output("error", safe_err)
               sys.exit(1)
 
-          # Collect repository files
+          # Scan repository files for context
           fileList = []
           repoContext = ""
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
@@ -305,20 +306,39 @@ jobs:
 
           MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
-          # wrapper to call chat completion across SDK variants
+          # Robust create_chat_completion with explicit handling of migration message
           def create_chat_completion(model, messages, **kwargs):
+              # 1) If client is instance of new OpenAI client, prefer that
               try:
-                  if hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
+                  if client and hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
                       return client.chat.completions.create(model=model, messages=messages, **kwargs)
-              except Exception:
-                  pass
+              except Exception as e_new:
+                  err_new = e_new
+
+              # 2) Try module-level openai.ChatCompletion.create ONLY if module version < 1.0
               try:
-                  import openai as _openai
-                  return _openai.ChatCompletion.create(model=model, messages=messages, **kwargs)
-              except Exception as e:
-                  raise e
+                  import importlib
+                  _openai = importlib.import_module('openai')
+                  ver = getattr(_openai, "__version__", "")
+                  major = int(ver.split('.')[0]) if ver else None
+                  if major is not None and major < 1 and hasattr(_openai, "ChatCompletion"):
+                      return _openai.ChatCompletion.create(model=model, messages=messages, **kwargs)
+              except Exception as e_mod:
+                  err_mod = e_mod
+
+              # 3) Last attempt: instantiate OpenAI client class dynamically and call it
+              try:
+                  from openai import OpenAI as OpenAIClientClass
+                  cli = OpenAIClientClass(api_key=api_key, api_base=api_base)
+                  return cli.chat.completions.create(model=model, messages=messages, **kwargs)
+              except Exception as e_cli:
+                  err_cli = e_cli
+
+              # If all failed, raise a combined error (messages sanitized)
+              raise Exception(f"Chat completion failed. new:{repr(str(err_new) if 'err_new' in locals() else '')} module:{repr(str(err_mod) if 'err_mod' in locals() else '')} client:{repr(str(err_cli) if 'err_cli' in locals() else '')}")
 
           def extract_text_from_response(response):
+              # Try multiple shapes
               try:
                   return response.choices[0].message.content
               except Exception:
@@ -333,7 +353,7 @@ jobs:
                   pass
               raise Exception("Yanıttan metin çıkarılamadı")
 
-          # API call with retry/backoff
+          # API çağrısı için retry/backoff
           max_retries = 3
           backoff = 2
           last_exc = None
@@ -361,7 +381,6 @@ jobs:
                       break
                   except Exception as e:
                       last_exc = e
-                      # sanitize message for logs and outputs
                       serr = str(e).replace('`', "'")
                       print(f"API çağrısı hatası (deneme {attempt}/{max_retries}): {serr}")
                       if attempt < max_retries:
@@ -403,7 +422,7 @@ jobs:
                   operations.append(f"Yazıldı: {filePath}")
                   print(f"Yazıldı: {filePath}")
 
-              # Safely write outputs (operations may be multiline)
+              # safely write outputs (operations may be multiline)
               write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
               write_output("count", str(len(operations)))
               write_output("success", "true")
