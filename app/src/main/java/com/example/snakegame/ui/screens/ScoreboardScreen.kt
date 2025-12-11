@@ -37,7 +37,6 @@ import com.example.snakegame.data.ScoreRepository
 import com.example.snakegame.ui.theme.SnakeGameTheme
 import com.example.snakegame.ui.theme.SnakeGreen
 import com.example.snakegame.ui.theme.Typography
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 @Composable
