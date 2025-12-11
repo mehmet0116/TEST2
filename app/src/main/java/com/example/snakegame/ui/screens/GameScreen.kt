@@ -76,6 +76,7 @@ fun GameScreen(
     // Animasyon değerleri
     val foodAnimation = remember { Animatable(0.4f) }
     val snakeAnimation = remember { Animatable(1f) }
+    val scoreAnimation = remember { Animatable(1f) }
     
     // Oyun döngüsü
     LaunchedEffect(gameState.gameSpeed, gameState.isPaused, gameState.isGameOver) {
@@ -100,6 +101,16 @@ fun GameScreen(
                 targetValue = 0.4f,
                 animationSpec = tween(durationMillis = 200)
             )
+            
+            // Skor animasyonu
+            scoreAnimation.animateTo(
+                targetValue = 1.2f,
+                animationSpec = tween(durationMillis = 150)
+            )
+            scoreAnimation.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 150)
+            )
         }
     }
     
@@ -123,9 +134,11 @@ fun GameScreen(
             // Üst kontrol paneli
             GameHeader(
                 score = gameState.score,
+                level = gameState.level,
                 isPaused = gameState.isPaused,
                 onPauseToggle = { game.togglePause() },
                 onBack = onBackToMenu,
+                scoreAnimation = scoreAnimation.value,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
@@ -211,7 +224,8 @@ fun GameScreen(
                                 position.x * cellWidth + offsetX,
                                 position.y * cellHeight + offsetY
                             ),
-                            size = Size(scaledWidth, scaledHeight)
+                            size = Size(scaledWidth, scaledHeight),
+                            cornerRadius = androidx.compose.ui.graphics.CornerRadius(4f, 4f)
                         )
                         
                         // Baş için gözler
@@ -329,6 +343,17 @@ fun GameScreen(
                     )
                 }
             }
+            
+            // Performans istatistikleri (debug için)
+            if (BuildConfig.DEBUG) {
+                val stats = game.getPerformanceStats()
+                Text(
+                    text = "Debug: Snake Length: ${stats["snakeLength"]}, Level: ${stats["level"]}",
+                    color = Color.Gray,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         }
     }
 }
@@ -336,9 +361,11 @@ fun GameScreen(
 @Composable
 fun GameHeader(
     score: Int,
+    level: Int,
     isPaused: Boolean,
     onPauseToggle: () -> Unit,
     onBack: () -> Unit,
+    scoreAnimation: Float = 1f,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -358,21 +385,41 @@ fun GameHeader(
             )
         }
         
-        // Skor gösterimi
+        // Skor ve seviye gösterimi
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 8.dp)
         ) {
-            Text(
-                text = "SKOR",
-                fontSize = 14.sp,
-                color = Color.Gray
-            )
-            Text(
-                text = score.toString(),
-                style = MaterialTheme.typography.titleLarge,
-                color = SnakeGreen
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "SKOR",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = score.toString(),
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = (18 * scoreAnimation).sp),
+                        color = SnakeGreen
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "SEVİYE",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = level.toString(),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = SnakeDarkGreen
+                    )
+                }
+            }
         }
         
         // Duraklat/Devam et butonu

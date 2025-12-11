@@ -77,7 +77,9 @@ data class GameState(
     val isGameOver: Boolean = false,
     val isPaused: Boolean = false,
     val foodEaten: Boolean = false,
-    val gameSpeed: Int = 150 // ms cinsinden
+    val gameSpeed: Int = 150, // ms cinsinden
+    val level: Int = 1,
+    val totalFoodEaten: Int = 0
 )
 
 /**
@@ -129,7 +131,9 @@ class SnakeGame(
                 score = 0,
                 isGameOver = false,
                 isPaused = false,
-                foodEaten = false
+                foodEaten = false,
+                level = 1,
+                totalFoodEaten = 0
             )
             
             currentDirection = Direction.RIGHT
@@ -190,6 +194,10 @@ class SnakeGame(
             // Yemek yeme kontrolü
             val isFoodEaten = newHead == currentState.food
             val newScore = if (isFoodEaten) currentState.score + 10 else currentState.score
+            val newTotalFoodEaten = if (isFoodEaten) currentState.totalFoodEaten + 1 else currentState.totalFoodEaten
+            
+            // Seviye hesaplama (her 5 yemekte bir seviye atla)
+            val newLevel = 1 + (newTotalFoodEaten / 5)
             
             // Yemek yenmediyse kuyruğu çıkar
             if (!isFoodEaten) {
@@ -210,11 +218,21 @@ class SnakeGame(
                 currentState.food
             }
             
+            // Seviye değiştiyse hızı ayarla
+            val newGameSpeed = if (newLevel > currentState.level) {
+                calculateGameSpeed(newLevel)
+            } else {
+                currentState.gameSpeed
+            }
+            
             _gameState.value = currentState.copy(
                 snake = newSnake,
                 food = newFood,
                 score = newScore,
-                foodEaten = isFoodEaten
+                foodEaten = isFoodEaten,
+                level = newLevel,
+                totalFoodEaten = newTotalFoodEaten,
+                gameSpeed = newGameSpeed
             )
             
         } catch (e: Exception) {
@@ -304,6 +322,16 @@ class SnakeGame(
         Timber.d("Game speed set to: ${speed}ms")
     }
     
+    /**
+     * Seviyeye göre oyun hızını hesapla
+     */
+    private fun calculateGameSpeed(level: Int): Int {
+        // Her seviyede hızı %10 artır (minimum 50ms)
+        val baseSpeed = 150
+        val speed = (baseSpeed * (1.0 - (level - 1) * 0.1)).toInt()
+        return speed.coerceAtLeast(50)
+    }
+    
     fun getGridWidth(): Int = gridWidth
     fun getGridHeight(): Int = gridHeight
     
@@ -316,5 +344,19 @@ class SnakeGame(
                state.food.x in 0 until gridWidth &&
                state.food.y in 0 until gridHeight &&
                !checkWallCollision(state.snake.first())
+    }
+    
+    /**
+     * Oyun performans istatistikleri
+     */
+    fun getPerformanceStats(): Map<String, Any> {
+        val state = _gameState.value
+        return mapOf(
+            "snakeLength" to state.snake.size,
+            "score" to state.score,
+            "level" to state.level,
+            "foodEaten" to state.totalFoodEaten,
+            "gameSpeed" to state.gameSpeed
+        )
     }
 }
