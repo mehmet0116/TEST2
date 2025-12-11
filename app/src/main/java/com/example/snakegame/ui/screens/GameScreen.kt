@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -44,13 +44,13 @@ import com.example.snakegame.game.Direction
 import com.example.snakegame.game.SnakeGame
 import com.example.snakegame.ui.theme.BackgroundBeige
 import com.example.snakegame.ui.theme.FoodRed
-import com.example.snakegame.ui.theme.GameGridDark
 import com.example.snakegame.ui.theme.GameGridLight
 import com.example.snakegame.ui.theme.SnakeDarkGreen
 import com.example.snakegame.ui.theme.SnakeGreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.min
+import timber.log.Timber
 
 @Composable
 fun GameScreen(
@@ -64,8 +64,10 @@ fun GameScreen(
     val coroutineScope = rememberCoroutineScope()
     
     // Oyun tahtası boyutunu ekrana uygun şekilde ayarla
-    val gridSize = min(screenWidth, screenHeight * 0.7f).toInt()
-    val cellSize = gridSize / 20 // 20x20 grid
+    val gridSize = remember(screenWidth, screenHeight) {
+        min(screenWidth, screenHeight * 0.7f).toInt()
+    }
+    val cellSize = remember(gridSize) { gridSize / 20 }
     
     val game = remember { SnakeGame() }
     val gameState by game.gameState
@@ -74,12 +76,17 @@ fun GameScreen(
     val foodAnimation = remember { Animatable(0.4f) }
     val snakeAnimation = remember { Animatable(1f) }
     
+    // Oyun hızını derived state olarak takip et
+    val gameSpeed by remember(gameState.gameSpeed) {
+        derivedStateOf { gameState.gameSpeed }
+    }
+    
     // Oyun döngüsü
-    LaunchedEffect(Unit) {
+    LaunchedEffect(gameSpeed) {
         while (true) {
             if (!gameState.isPaused && !gameState.isGameOver) {
                 game.update()
-                delay(150) // Oyun hızı
+                delay(gameSpeed.toLong())
             } else {
                 delay(100)
             }
@@ -103,6 +110,7 @@ fun GameScreen(
     // Oyun bittiğinde callback'i tetikle
     LaunchedEffect(gameState.isGameOver) {
         if (gameState.isGameOver) {
+            Timber.i("Game over triggered with score: ${gameState.score}")
             onGameOver(gameState.score)
         }
     }
@@ -137,27 +145,33 @@ fun GameScreen(
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = { offset ->
-                                // Ekrana dokunma ile yön kontrolü
-                                val cellWidth = size.width / 20
-                                val cellHeight = size.height / 20
-                                val tapX = offset.x / cellWidth
-                                val tapY = offset.y / cellHeight
-                                
-                                // Dokunulan pozisyona göre yön belirle
-                                val head = gameState.snake.firstOrNull() ?: return@detectTapGestures
-                                val deltaX = tapX - head.x
-                                val deltaY = tapY - head.y
-                                
-                                val direction = when {
-                                    abs(deltaX) > abs(deltaY) -> {
-                                        if (deltaX > 0) Direction.RIGHT else Direction.LEFT
+                                try {
+                                    // Ekrana dokunma ile yön kontrolü
+                                    val cellWidth = size.width / 20
+                                    val cellHeight = size.height / 20
+                                    val tapX = offset.x / cellWidth
+                                    val tapY = offset.y / cellHeight
+                                    
+                                    // Dokunulan pozisyona göre yön belirle
+                                    val head = gameState.snake.firstOrNull() 
+                                        ?: return@detectTapGestures
+                                    val deltaX = tapX - head.x
+                                    val deltaY = tapY - head.y
+                                    
+                                    val direction = when {
+                                        kotlin.math.abs(deltaX) > kotlin.math.abs(deltaY) -> {
+                                            if (deltaX > 0) Direction.RIGHT else Direction.LEFT
+                                        }
+                                        else -> {
+                                            if (deltaY > 0) Direction.DOWN else Direction.UP
+                                        }
                                     }
-                                    else -> {
-                                        if (deltaY > 0) Direction.DOWN else Direction.UP
-                                    }
+                                    
+                                    game.setDirection(direction)
+                                    Timber.d("Tap direction: $direction at ($tapX, $tapY)")
+                                } catch (e: Exception) {
+                                    Timber.e(e, "Error handling tap gesture")
                                 }
-                                
-                                game.setDirection(direction)
                             }
                         )
                     }
@@ -452,13 +466,4 @@ fun DirectionButton(
             tint = SnakeGreen
         )
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GameScreenPreview() {
-    GameScreen(
-        onGameOver = {},
-        onBackToMenu = {}
-    )
 }

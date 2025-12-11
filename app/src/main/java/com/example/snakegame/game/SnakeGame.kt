@@ -3,6 +3,7 @@ package com.example.snakegame.game
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import timber.log.Timber
 import kotlin.math.abs
 
 /**
@@ -10,7 +11,8 @@ import kotlin.math.abs
  * @param x X koordinatı
  * @param y Y koordinatı
  */
-data class Position(val x: Int, val y: Int) {
+@kotlinx.parcelize.Parcelize
+data class Position(val x: Int, val y: Int) : kotlinx.parcelize.Parcelable {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Position) return false
@@ -18,6 +20,15 @@ data class Position(val x: Int, val y: Int) {
     }
     
     override fun hashCode(): Int = 31 * x + y
+    
+    /**
+     * İki pozisyon arasındaki mesafeyi hesaplar
+     */
+    fun distanceTo(other: Position): Double {
+        val dx = x - other.x
+        val dy = y - other.y
+        return kotlin.math.sqrt((dx * dx + dy * dy).toDouble())
+    }
 }
 
 /**
@@ -42,7 +53,30 @@ enum class Direction {
     fun isValidChange(newDirection: Direction): Boolean {
         return this.opposite() != newDirection
     }
+    
+    /**
+     * Yönü vektöre çevirir
+     */
+    fun toVector(): Pair<Int, Int> = when (this) {
+        UP -> Pair(0, -1)
+        DOWN -> Pair(0, 1)
+        LEFT -> Pair(-1, 0)
+        RIGHT -> Pair(1, 0)
+    }
 }
+
+/**
+ * Oyun durumu veri sınıfı
+ */
+data class GameState(
+    val snake: List<Position> = emptyList(),
+    val food: Position = Position(0, 0),
+    val score: Int = 0,
+    val isGameOver: Boolean = false,
+    val isPaused: Boolean = false,
+    val foodEaten: Boolean = false,
+    val gameSpeed: Int = 150 // ms cinsinden
+)
 
 /**
  * Yılan oyunu ana sınıfı
@@ -60,6 +94,13 @@ class SnakeGame(
     private var nextDirection = Direction.RIGHT
     private var isDirectionChangedThisFrame = false
     
+    // Yılan pozisyonlarını hızlı erişim için Set olarak tut
+    private val snakePositions = mutableSetOf<Position>()
+    
+    // Boş hücreleri cache'le
+    private val emptyCellsCache = mutableSetOf<Position>()
+    private var isCacheDirty = true
+    
     private val initialSnake = listOf(
         Position(gridWidth / 2, gridHeight / 2),
         Position(gridWidth / 2 - 1, gridHeight / 2),
@@ -68,24 +109,37 @@ class SnakeGame(
     
     init {
         resetGame()
+        Timber.d("SnakeGame initialized with grid: ${gridWidth}x$gridHeight")
     }
     
     /**
      * Oyunu sıfırlar
      */
     fun resetGame() {
-        val newFood = generateFood(initialSnake)
-        _gameState.value = GameState(
-            snake = initialSnake.toMutableList(),
-            food = newFood,
-            score = 0,
-            isGameOver = false,
-            isPaused = false,
-            foodEaten = false
-        )
-        currentDirection = Direction.RIGHT
-        nextDirection = Direction.RIGHT
-        isDirectionChangedThisFrame = false
+        try {
+            val newFood = generateFood(initialSnake)
+            snakePositions.clear()
+            snakePositions.addAll(initialSnake)
+            
+            _gameState.value = GameState(
+                snake = initialSnake.toMutableList(),
+                food = newFood,
+                score = 0,
+                isGameOver = false,
+                isPaused = false,
+                foodEaten = false
+            )
+            
+            currentDirection = Direction.RIGHT
+            nextDirection = Direction.RIGHT
+            isDirectionChangedThisFrame = false
+            isCacheDirty = true
+            
+            Timber.i("Game reset. Initial snake: $initialSnake, Food: $newFood")
+        } catch (e: Exception) {
+            Timber.e(e, "Error resetting game")
+            throw IllegalStateException("Failed to reset game", e)
+        }
     }
     
     /**
@@ -100,6 +154,7 @@ class SnakeGame(
         if (currentDirection.isValidChange(direction)) {
             nextDirection = direction
             isDirectionChangedThisFrame = true
+            Timber.d("Direction changed to: $direction")
         }
     }
     
@@ -110,40 +165,60 @@ class SnakeGame(
         val currentState = _gameState.value
         if (currentState.isGameOver || currentState.isPaused) return
         
-        // Yönü güncelle ve flag'i sıfırla
-        currentDirection = nextDirection
-        isDirectionChangedThisFrame = false
-        
-        val head = currentState.snake.first()
-        val newHead = calculateNewHead(head, currentDirection)
-        
-        // Çarpışma kontrolleri
-        if (checkWallCollision(newHead) || checkSelfCollision(newHead, currentState.snake)) {
+        try {
+            // Yönü güncelle ve flag'i sıfırla
+            currentDirection = nextDirection
+            isDirectionChangedThisFrame = false
+            
+            val head = currentState.snake.first()
+            val newHead = calculateNewHead(head, currentDirection)
+            
+            // Çarpışma kontrolleri
+            if (checkWallCollision(newHead) || checkSelfCollision(newHead)) {
+                _gameState.value = currentState.copy(isGameOver = true)
+                Timber.i("Game over! Final score: ${currentState.score}")
+                return
+            }
+            
+            // Yeni yılan pozisyonlarını oluştur
+            val newSnake = mutableListOf<Position>()
+            newSnake.add(newHead)
+            newSnake.addAll(currentState.snake)
+            
+            // Yemek yeme kontrolü
+            val isFoodEaten = newHead == currentState.food
+            val newScore = if (isFoodEaten) currentState.score + 10 else currentState.score
+            
+            // Yemek yenmediyse kuyruğu çıkar
+            if (!isFoodEaten) {
+                val removedTail = newSnake.removeLast()
+                snakePositions.remove(removedTail)
+            } else {
+                Timber.d("Food eaten at: ${currentState.food}")
+            }
+            
+            // Snake positions set'ini güncelle
+            snakePositions.clear()
+            snakePositions.addAll(newSnake)
+            
+            val newFood = if (isFoodEaten) {
+                isCacheDirty = true
+                generateFood(newSnake)
+            } else {
+                currentState.food
+            }
+            
+            _gameState.value = currentState.copy(
+                snake = newSnake,
+                food = newFood,
+                score = newScore,
+                foodEaten = isFoodEaten
+            )
+            
+        } catch (e: Exception) {
+            Timber.e(e, "Error updating game state")
             _gameState.value = currentState.copy(isGameOver = true)
-            return
         }
-        
-        // Yeni yılan pozisyonlarını oluştur
-        val newSnake = mutableListOf<Position>()
-        newSnake.add(newHead)
-        newSnake.addAll(currentState.snake)
-        
-        // Yemek yeme kontrolü
-        val isFoodEaten = newHead == currentState.food
-        val newScore = if (isFoodEaten) currentState.score + 10 else currentState.score
-        val newFood = if (isFoodEaten) generateFood(newSnake) else currentState.food
-        
-        // Yemek yenmediyse kuyruğu çıkar
-        if (!isFoodEaten) {
-            newSnake.removeLast()
-        }
-        
-        _gameState.value = currentState.copy(
-            snake = newSnake,
-            food = newFood,
-            score = newScore,
-            foodEaten = isFoodEaten
-        )
     }
     
     /**
@@ -169,45 +244,52 @@ class SnakeGame(
     /**
      * Kendine çarpma kontrolü (optimize edilmiş versiyon)
      */
-    private fun checkSelfCollision(head: Position, snake: List<Position>): Boolean {
-        // Baş hariç diğer segmentleri kontrol et
-        for (i in 1 until snake.size) {
-            if (snake[i] == head) return true
-        }
-        return false
+    private fun checkSelfCollision(head: Position): Boolean {
+        return snakePositions.contains(head)
     }
     
     /**
      * Oyunu duraklat/devam ettir
      */
     fun togglePause() {
-        _gameState.value = _gameState.value.copy(isPaused = !_gameState.value.isPaused)
+        val newPausedState = !_gameState.value.isPaused
+        _gameState.value = _gameState.value.copy(isPaused = newPausedState)
+        Timber.d("Game ${if (newPausedState) "paused" else "resumed"}")
     }
     
     /**
      * Rastgele yemek pozisyonu oluşturur (optimize edilmiş)
      */
     private fun generateFood(snake: List<Position>): Position {
-        // Boş hücreleri bul
-        val emptyCells = mutableListOf<Position>()
-        
-        // Grid boyutuna göre optimize edilmiş boş hücre bulma
-        val snakeSet = snake.toSet()
-        
-        for (x in 0 until gridWidth) {
-            for (y in 0 until gridHeight) {
-                val pos = Position(x, y)
-                if (!snakeSet.contains(pos)) {
-                    emptyCells.add(pos)
+        try {
+            // Cache temizse boş hücreleri yeniden hesapla
+            if (isCacheDirty) {
+                emptyCellsCache.clear()
+                
+                // Tüm hücreleri oluştur
+                for (x in 0 until gridWidth) {
+                    for (y in 0 until gridHeight) {
+                        emptyCellsCache.add(Position(x, y))
+                    }
                 }
+                
+                // Yılanın kapladığı hücreleri çıkar
+                emptyCellsCache.removeAll(snakePositions)
+                isCacheDirty = false
             }
-        }
-        
-        return if (emptyCells.isNotEmpty()) {
-            emptyCells.random()
-        } else {
-            // Boş hücre yoksa (nadir durum) ilk pozisyonu döndür
-            Position(0, 0)
+            
+            return if (emptyCellsCache.isNotEmpty()) {
+                emptyCellsCache.random().also { position ->
+                    Timber.d("Generated food at: $position")
+                }
+            } else {
+                // Boş hücre yoksa (nadir durum) ilk pozisyonu döndür
+                Timber.w("No empty cells available for food generation")
+                Position(0, 0)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error generating food")
+            return Position(0, 0)
         }
     }
     
@@ -215,21 +297,22 @@ class SnakeGame(
      * Oyun hızını ayarlar
      */
     fun setGameSpeed(speed: Int) {
-        // Hız ayarı için gelecekte kullanılabilir
+        require(speed in 50..300) { "Speed must be between 50 and 300 ms" }
+        _gameState.value = _gameState.value.copy(gameSpeed = speed)
+        Timber.d("Game speed set to: ${speed}ms")
     }
     
     fun getGridWidth(): Int = gridWidth
     fun getGridHeight(): Int = gridHeight
+    
+    /**
+     * Oyun durumunu kontrol et
+     */
+    fun validateGameState(): Boolean {
+        val state = _gameState.value
+        return state.snake.isNotEmpty() &&
+               state.food.x in 0 until gridWidth &&
+               state.food.y in 0 until gridHeight &&
+               !checkWallCollision(state.snake.first())
+    }
 }
-
-/**
- * Oyun durumu veri sınıfı
- */
-data class GameState(
-    val snake: List<Position> = emptyList(),
-    val food: Position = Position(0, 0),
-    val score: Int = 0,
-    val isGameOver: Boolean = false,
-    val isPaused: Boolean = false,
-    val foodEaten: Boolean = false
-)
