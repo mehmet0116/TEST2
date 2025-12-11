@@ -171,16 +171,54 @@ jobs:
           import re
           import time
           from pathlib import Path
+
+          # Esnek OpenAI import + init (farklı SDK sürümleri ile uyumluluk)
           try:
-              from openai import OpenAI
+              # Önce sınıf bazlı client'ı dene
+              try:
+                  from openai import OpenAI as OpenAIClientClass  # yeni/ortak API
+              except Exception:
+                  OpenAIClientClass = None
+
+              api_key = os.environ.get('DEEPSEEK_API_KEY')
+              api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
+
+              client = None
+              use_new_client = False
+
+              if OpenAIClientClass:
+                  # 1) Deneme: api_base parametre adı 'api_base'
+                  try:
+                      client = OpenAIClientClass(api_key=api_key, api_base=api_base)
+                      use_new_client = True
+                  except TypeError:
+                      # 2) Deneme: parametre adı 'base_url'
+                      try:
+                          client = OpenAIClientClass(api_key=api_key, base_url=api_base)
+                          use_new_client = True
+                      except TypeError:
+                          client = None
+
+              if client is None:
+                  # fallback: module-level openai ayarları (eski/diğer sürümler)
+                  import openai as openai_module
+                  openai_module.api_key = api_key
+                  # bazı sürümlerde farklı isimlendirmeler olabilir
+                  if hasattr(openai_module, "api_base"):
+                      openai_module.api_base = api_base
+                  elif hasattr(openai_module, "base_url"):
+                      openai_module.base_url = api_base
+                  client = openai_module
+                  use_new_client = False
+
           except Exception as e:
-              print("openai kütüphanesi yüklenemedi:", e)
+              print("OpenAI istemcisi başlatılamadı:", e)
               with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
                   f.write("success=false\n")
-                  f.write(f"error=OpenAI SDK import error: {str(e)}\n")
+                  f.write(f"error=Client init error: {str(e)}\n")
               sys.exit(1)
 
-          # DEEPSEEK_API_KEY kontrolü
+          # DEEPSEEK_API_KEY kontrolü (ayrıca üstte kullanıldı)
           if not os.environ.get('DEEPSEEK_API_KEY'):
               msg = "DEEPSEEK_API_KEY yok veya boş. Lütfen repo secrets içine DEEPSEEK_API_KEY ekleyin."
               print(msg)
@@ -189,22 +227,9 @@ jobs:
                   f.write(f"error={msg}\n")
               sys.exit(1)
 
-          # OpenAI client başlatma (api_base kullanılıyor)
-          api_key = os.environ.get('DEEPSEEK_API_KEY')
-          api_base = os.environ.get('BASE_URL') or "https://api.deepseek.com"
-          client = None
-          try:
-              client = OpenAI(api_key=api_key, api_base=api_base)
-          except Exception as e:
-              print("OpenAI istemcisi başlatılamadı:", e)
-              with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as f:
-                  f.write("success=false\n")
-                  f.write(f"error=Client init error: {str(e)}\n")
-              sys.exit(1)
-
+          # Dosya tarama
           fileList = []
           repoContext = ""
-
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
           codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.php', '.rb', '.pl', '.swift', '.sh', '.ps1'}
 
@@ -212,12 +237,10 @@ jobs:
               global fileList, repoContext
               if depth > 10 or not Path(directory).exists():
                   return
-
               try:
                   for item in Path(directory).iterdir():
                       if item.name.startswith('.') and item.name != '.gitignore':
                           continue
-
                       if item.is_dir():
                           if item.name not in ignoreDirs:
                               scanDirectory(item, depth + 1)
@@ -272,6 +295,39 @@ jobs:
 
           MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
+          # wrapper: farklı client türleri için chat completion çağırma ve response ayrıştırma
+          def create_chat_completion(model, messages, **kwargs):
+              # new client style: client.chat.completions.create(...)
+              try:
+                  if hasattr(client, "chat") and hasattr(client.chat, "completions") and hasattr(client.chat.completions, "create"):
+                      return client.chat.completions.create(model=model, messages=messages, **kwargs)
+              except Exception:
+                  pass
+              # fallback: module-level openai ChatCompletion.create(...)
+              try:
+                  import openai as _openai
+                  return _openai.ChatCompletion.create(model=model, messages=messages, **kwargs)
+              except Exception as e:
+                  raise e
+
+          def extract_text_from_response(response):
+              # try attribute access (new client)
+              try:
+                  return response.choices[0].message.content
+              except Exception:
+                  pass
+              # try dict-like access (older module)
+              try:
+                  return response['choices'][0]['message']['content']
+              except Exception:
+                  pass
+              # try alternative older shape: choices[0].text
+              try:
+                  return response.choices[0].text
+              except Exception:
+                  pass
+              raise Exception("Yanıttan metin çıkarılamadı")
+
           # API çağrısı için retry/backoff
           max_retries = 3
           backoff = 2
@@ -285,7 +341,7 @@ jobs:
 
               for attempt in range(1, max_retries + 1):
                   try:
-                      response = client.chat.completions.create(
+                      response = create_chat_completion(
                           model=os.environ.get('MODEL'),
                           messages=[
                               {"role": "system", "content": systemPrompt},
@@ -295,7 +351,7 @@ jobs:
                           temperature=0.5 if os.environ.get('MODEL') == 'deepseek-reasoner' else 0.7,
                           stream=False,
                       )
-                      aiResponse = response.choices[0].message.content
+                      aiResponse = extract_text_from_response(response)
                       print("AI yanıtı alındı")
                       break
                   except Exception as e:
