@@ -1,366 +1,473 @@
-name: DeepSeek Ultimate Workflow
+name: DeepSeek Ultimate
 
 on:
-  push:
-    branches:
-      - main
-      - develop
-    paths:
-      - '**.md'
-      - '**.py'
-      - '**.js'
-      - '**.ts'
-      - '**.json'
-      - '**.yml'
-      - '**.yaml'
-  pull_request:
-    branches:
-      - main
-      - develop
-  workflow_dispatch:
+  workflow_dispatch:   
     inputs:
-      task:
-        description: 'Task to perform'
-        required: false
-        default: 'analyze'
-
-env:
-  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-  DEEPSEEK_BASE_URL: https://api.deepseek.com
-  MAX_TOKENS: 32000
-  REASONING_MODEL: deepseek-reasoner
-  CHAT_MODEL: deepseek-chat
+      task:  
+        description: 'Yapılacak görev'
+        required: true
+        type: string
+  push:
+    branches: 
+      - main
 
 jobs:
-  analyze-and-process:
+  deepseek:   
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+    env:
+      GIT_COMMITTER_NAME: "github-actions[bot]"
+      GIT_COMMITTER_EMAIL: "github-actions[bot]@users.noreply.github.com"
 
     steps:
-      - name: Checkout repository
+      - name:  Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Git Config
+        run: |
+          git config --global user.name "$GIT_COMMITTER_NAME"
+          git config --global user. email "$GIT_COMMITTER_EMAIL"
+          git config --global pull.rebase false
+          git config --global push.autoSetupRemote true
+
+      - name:  Senkronizasyon
+        run: |
+          set -euo pipefail
+          echo "Uzak degisiklikler kontrol ediliyor..."
+          git fetch origin || true
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+          git pull origin "$CURRENT_BRANCH" --no-edit --strategy-option=ours || true
+
+      - name: Proje Tipi Algilama
+        id: detect
+        uses: actions/github-script@v7
+        with:
+          script:  |
+            const fs = require('fs');
+            let projectType = 'general';
+            let projectDetails = [];
+            if (fs.existsSync('build. gradle') || fs.existsSync('app/build.gradle') ||
+                fs.existsSync('build.gradle.kts') || fs.existsSync('settings.gradle') ||
+                fs. existsSync('settings.gradle.kts')) {
+              projectType = 'android';
+              projectDetails. push('Android/Kotlin');
+            }
+            if (fs.existsSync('package.json')) {
+              if (projectType === 'general') projectType = 'node';
+              projectDetails.push('Node.js/JavaScript');
+            }
+            if (fs.existsSync('requirements.txt') || fs.existsSync('pyproject.toml') ||
+                fs.existsSync('setup.py') || fs.existsSync('Pipfile')) {
+              if (projectType === 'general') projectType = 'python';
+              projectDetails.push('Python');
+            }
+            if (fs.existsSync('CMakeLists.txt') || fs.existsSync('Makefile') ||
+                fs. existsSync('meson.build')) {
+              if (projectType === 'general') projectType = 'cpp';
+              projectDetails.push('C/C++');
+            }
+            if (fs.existsSync('Cargo.toml')) {
+              if (projectType === 'general') projectType = 'rust';
+              projectDetails.push('Rust');
+            }
+            if (fs.existsSync('go.mod')) {
+              if (projectType === 'general') projectType = 'go';
+              projectDetails.push('Go');
+            }
+            console.log('Tespit Edilen Tip:  ' + projectType);
+            console. log('Detaylar: ' + (projectDetails.join(', ') || 'Genel Proje'));
+            core.setOutput('type', projectType);
+            core.setOutput('details', projectDetails. join(', ') || 'Genel Proje');
+
+      - name: Model Selection
+        id: model_selector
+        run: |
+          TASK="${{ github.event.inputs. task }}"
+          
+          if echo "$TASK" | grep -iE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)" > /dev/null; then
+            echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
+            echo "complexity=high" >> $GITHUB_OUTPUT
+            echo "📊 Model:  DeepSeek Reasoner (Zor görev tespit edildi)" >> $GITHUB_STEP_SUMMARY
+          elif echo "$TASK" | grep -iE "(update|fix|typo|format|cleanup|lint|simple|minor|patch|quick|document|comment|add|remove|rename|style|test)" > /dev/null; then
+            echo "model=deepseek-chat" >> $GITHUB_OUTPUT
+            echo "complexity=low" >> $GITHUB_OUTPUT
+            echo "💬 Model: DeepSeek Chat (Basit görev)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
+            echo "complexity=medium" >> $GITHUB_OUTPUT
+            echo "🔄 Model: DeepSeek Reasoner (Varsayılan)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: (Optional) Java Kurulumu
+        if: steps.detect.outputs.type == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: (Optional) Node.js Kurulumu
+        if: steps.detect.outputs. type == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: (Optional) Python Kurulumu
+        if: steps.detect.outputs. type == 'python'
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          pip install requests pyyaml gitpython
+      - name: (Optional) Rust Kurulumu
+        if: steps.detect.outputs.type == 'rust'
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Detect task complexity and select model
-        id: model_selection
-        run: |
-          import os
-          import json
-          
-          # Task keywords for complexity detection
-          complex_keywords = [
-              'architecture', 'design', 'refactor', 'optimization', 'security',
-              'performance', 'algorithm', 'analysis', 'debug', 'investigate',
-              'complex', 'critical', 'enhance', 'improve', 'transform',
-              'restructure', 'migration', 'integration', 'planning', 'strategy'
-          ]
-          
-          simple_keywords = [
-              'update', 'fix', 'typo', 'format', 'cleanup', 'lint',
-              'simple', 'minor', 'patch', 'quick', 'document', 'comment',
-              'add', 'remove', 'rename', 'style', 'test'
-          ]
-          
-          # Get task from input or commit message
-          task_input = "${{ github.event.inputs.task }}"
-          commit_message = "${{ github.event.head_commit.message }}"
-          
-          task_text = (task_input or commit_message or "").lower()
-          
-          # Determine model based on keywords
-          model = "deepseek-chat"
-          complexity = "simple"
-          
-          for keyword in complex_keywords:
-              if keyword in task_text:
-                  model = "deepseek-reasoner"
-                  complexity = "complex"
-                  break
-          
-          # Check if any simple keyword exists (only if no complex keyword found)
-          if complexity == "simple":
-              for keyword in simple_keywords:
-                  if keyword in task_text:
-                      model = "deepseek-chat"
-                      complexity = "simple"
-                      break
-          
-          # Default to reasoning model for ambiguous tasks
-          if not task_text or len(task_text.split()) < 3:
-              model = "deepseek-reasoner"
-              complexity = "complex"
-          
-          print(f"Selected Model: {model}")
-          print(f"Task Complexity: {complexity}")
-          
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"model={model}\n")
-              f.write(f"complexity={complexity}\n")
-        shell: python
+      - name: (Optional) Go Kurulumu
+        if: steps.detect.outputs.type == 'go'
+        uses: actions/setup-go@v5
+        with: 
+          go-version: '1.21'
 
-      - name: Get changed files and deletions
-        id: changes
-        run: |
-          import subprocess
-          import json
-          import os
-          
-          # Get the list of changed files
-          result = subprocess.run(['git', 'diff', '--name-only', 'HEAD~1..HEAD'], 
-                                capture_output=True, text=True)
-          changed_files = result.stdout.strip().split('\n') if result.stdout.strip() else []
-          
-          # Get deleted files
-          result = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=D', 'HEAD~1..HEAD'], 
-                                capture_output=True, text=True)
-          deleted_files = result.stdout.strip().split('\n') if result.stdout.strip() else []
-          
-          # Get added files
-          result = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=A', 'HEAD~1..HEAD'], 
-                                capture_output=True, text=True)
-          added_files = result.stdout.strip().split('\n') if result.stdout.strip() else []
-          
-          # Get modified files
-          result = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=M', 'HEAD~1..HEAD'], 
-                                capture_output=True, text=True)
-          modified_files = result.stdout.strip().split('\n') if result.stdout.strip() else []
-          
-          changes_info = {
-              'changed': [f for f in changed_files if f],
-              'deleted': [f for f in deleted_files if f],
-              'added': [f for f in added_files if f],
-              'modified': [f for f in modified_files if f]
-          }
-          
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"changes_json={json.dumps(changes_info)}\n")
-              f.write(f"changed_files={','.join(changes_info['changed'])}\n")
-              f.write(f"deleted_files={','.join(changes_info['deleted'])}\n")
-        shell: python
-
-      - name: Call DeepSeek API with Reasoning-First Approach
-        id: deepseek_analysis
-        run: |
-          import requests
-          import json
-          import os
-          
-          api_key = os.environ.get('DEEPSEEK_API_KEY')
-          base_url = os.environ.get('DEEPSEEK_BASE_URL')
-          model = "${{ steps.model_selection.outputs.model }}"
-          max_tokens = int(os.environ.get('MAX_TOKENS', 32000))
-          
-          changes_json = """${{ steps.changes.outputs.changes_json }}"""
-          changes = json.loads(changes_json) if changes_json and changes_json != '{}' else {}
-          
-          # Build comprehensive prompt with reasoning-first approach
-          prompt = f"""You are an expert code reviewer and analyzer using a reasoning-first approach.
-
-## Task Context:
-- Repository: mehmet0116/TEST2
-- Model Selected: {model}
-- Task Complexity: ${{ steps.model_selection.outputs.complexity }}
-- Timestamp: $(date -u)
-
-## Changed Files Summary:
-- Modified Files: {', '.join(changes.get('modified', [])) or 'None'}
-- Added Files: {', '.join(changes.get('added', [])) or 'None'}
-- Deleted Files: {', '.join(changes.get('deleted', [])) or 'None'}
-- Total Changes: {len(changes.get('changed', []))}
-
-## Instructions:
-1. First, deeply reason about the changes and their implications
-2. Analyze code quality, security, and performance
-3. Identify potential issues and improvements
-4. Provide actionable recommendations
-5. For deleted files, explain impact and suggest alternatives if needed
-
-Please provide a comprehensive analysis with your reasoning process clearly shown."""
-
-          headers = {
-              'Authorization': f'Bearer {api_key}',
-              'Content-Type': 'application/json'
-          }
-          
-          # Reasoning-first payload with increased max_tokens
-          payload = {
-              'model': model,
-              'messages': [
-                  {
-                      'role': 'user',
-                      'content': prompt
+      - name: DeepSeek Kodlama Motoru
+        id: deepseek
+        uses: actions/github-script@v7
+        timeout-minutes: 60
+        env:
+          API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          USER_MSG: ${{ github.event.inputs.task || 'Proje optimize et' }}
+          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
+          PROJECT_DETAILS: ${{ steps. detect.outputs.details }}
+          MODEL: ${{ steps.model_selector.outputs.model }}
+          COMPLEXITY: ${{ steps.model_selector.outputs.complexity }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const fetch = global.fetch || require('node-fetch');
+            
+            const ignoreDirs = new Set(['.git', 'node_modules', 'build', 'dist', '. gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor', '. next', '.nuxt']);
+            
+            const codeExtensions = new Set([
+              '.js', '.ts', '.jsx', '.tsx', '. mjs', '.cjs',
+              '.py', '.pyw', '.pyi',
+              '.java', '.kt', '.kts', '.scala',
+              '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx',
+              '.cs', '.fs', '.vb',
+              '.go', '.rs', '.rb',
+              '.php',
+              '.swift', '.m', '.mm',
+              '.xml', '.json', '.yaml', '.yml', '.toml',
+              '.html', '.css', '.scss', '.sass', '. less',
+              '.md', '.txt', '.rst',
+              '.gradle', '.properties', '.pro',
+              '.sql',
+              '.sh', '.bash', '.zsh', '.ps1',
+              '.dockerfile'
+            ]);
+            
+            let repoContext = "";
+            let fileList = [];
+            
+            function scanDirectory(dir, depth) {
+              if (depth === undefined) depth = 0;
+              if (depth > 10) return;
+              if (! fs.existsSync(dir)) return;
+              
+              try {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                
+                for (const entry of entries) {
+                  const fullPath = path.join(dir, entry. name);
+                  const relativePath = path.relative('. ', fullPath);
+                  
+                  if (entry.isDirectory()) {
+                    if (! ignoreDirs.has(entry.name) && !entry.name.startsWith('.')) {
+                      scanDirectory(fullPath, depth + 1);
+                    }
+                  } else if (entry.isFile()) {
+                    const ext = path.extname(entry.name).toLowerCase();
+                    if (codeExtensions.has(ext) || entry.name === 'Dockerfile' || entry.name === 'Makefile' || entry.name === 'CMakeLists.txt') {
+                      const stats = fs.statSync(fullPath);
+                      if (stats. size < 100000) {
+                        try {
+                          const content = fs.readFileSync(fullPath, 'utf8');
+                          repoContext += '\n=== DOSYA:  ' + relativePath + ' ===\n' + content + '\n=== DOSYA SONU ===\n';
+                          fileList. push(relativePath);
+                        } catch (e) {}
+                      }
+                    }
                   }
-              ],
-              'max_tokens': max_tokens,
-              'temperature': 0.7 if model == 'deepseek-chat' else 0.5
-          }
-          
-          # Add reasoning config for deepseek-reasoner
-          if model == 'deepseek-reasoner':
-              payload['thinking'] = {
-                  'type': 'enabled',
-                  'budget_tokens': 20000
+                }
+              } catch (e) {}
+            }
+            
+            scanDirectory('.');
+            console.log('Taranan dosya sayisi: ' + fileList.length);
+            
+            const systemPrompt =
+              'Sen DeepSeek V3. 2 ULTIMATE, dunya standartlarinda profesyonel bir yazilim muhendisisin.\n' +
+              'REASONING-FIRST yaklasimi kullan. Derin analiz yap.\n\n' +
+              'PROJE BILGISI:\n' +
+              '- Tip: ' + process.env.PROJECT_TYPE + '\n' +
+              '- Detaylar: ' + process.env. PROJECT_DETAILS + '\n' +
+              '- Model Kompleksitesi: ' + process. env.COMPLEXITY + '\n\n' +
+              'GOREV:\n' + process.env.USER_MSG + '\n\n' +
+              'KRITIK KURALLAR:\n\n' +
+              '1. DOSYA OLUSTURMA/GUNCELLEME FORMATI:\n' +
+              '   ---FILE: dosya/yolu/isim.uzanti---\n' +
+              '   [dosya icerigi]\n' +
+              '   ---END---\n\n' +
+              '2. DOSYA SILME FORMATI:\n' +
+              '   ---DELETE:  dosya/yolu/isim.uzanti---\n' +
+              '   ---END---\n\n' +
+              '3. KLASOR SILME FORMATI:\n' +
+              '   ---DELETEDIR: klasor/yolu---\n' +
+              '   ---END---\n\n' +
+              '4. KODLAMA KURALLARI:\n' +
+              '   - Tam calisan, production-ready kod yaz\n' +
+              '   - Hata yonetimi ekle\n' +
+              '   - Yorum satirlari ekle (Turkce)\n' +
+              '   - Best practices uygula\n' +
+              '   - DRY ve SOLID prensiplerine uy\n' +
+              '   - Test kodunu dahil et\n\n' +
+              '5. YASAKLAR:\n' +
+              '   - Markdown code block kullanma (backtick yok)\n' +
+              '   - Eksik kod yazma\n' +
+              '   - Placeholder birakma\n' +
+              '   - TODO yorum birakmak\n\n' +
+              'MEVCUT DOSYALAR:\n' + fileList.join(', ');
+            
+            try {
+              console.log('🤖 API Cagrisi Basliyor.. .');
+              console.log('Model: ' + process.env.MODEL);
+              console.log('Komplekslik: ' + process.env. COMPLEXITY);
+              
+              const response = await fetch("https://api.deepseek.com/chat/completions", {
+                method: "POST",
+                headers:  {
+                  "Authorization": "Bearer " + process.env.API_KEY,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  model: process.env.MODEL,
+                  messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: repoContext || "Bos proje - sifirdan olustur" }
+                  ],
+                  stream: false,
+                  max_tokens: 32000,
+                  temperature: process.env.MODEL === 'deepseek-reasoner' ? 0.5 : 0.7
+                })
+              });
+              
+              if (! response.ok) {
+                const errorText = await response.text();
+                throw new Error('API Hatasi: ' + response.status + ' - ' + errorText);
               }
-          
-          try:
-              response = requests.post(
-                  f'{base_url}/chat/completions',
-                  json=payload,
-                  headers=headers,
-                  timeout=120
-              )
-              response.raise_for_status()
               
-              result = response.json()
+              const data = await response.json();
+              const aiResponse = data.choices[0]. message.content;
+              const thinking = data.choices[0].message.reasoning_content || "";
               
-              if model == 'deepseek-reasoner' and 'thinking' in result.get('choices', [{}])[0]:
-                  thinking = result['choices'][0]['thinking']
-                  content = result['choices'][0]['message']['content']
-                  analysis = f"## Reasoning Process:\n{thinking}\n\n## Analysis Result:\n{content}"
-              else:
-                  analysis = result['choices'][0]['message']['content']
+              console.log("✅ AI yaniti alindi");
               
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  # Escape newlines for GitHub output
-                  escaped_analysis = analysis.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D')
-                  f.write(f"analysis<<EOF\n{analysis}\nEOF\n")
+              let operations = [];
               
-              print("✓ DeepSeek API call successful")
-              print(f"✓ Model used: {model}")
-              print(f"✓ Analysis completed")
+              // Klasor silme
+              const deleteDirRegex = /---DELETEDIR:\s*(. +? )\s*---/gs;
+              let match;
+              while ((match = deleteDirRegex.exec(aiResponse)) !== null) {
+                const dirPath = match[1].trim();
+                if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
+                  fs.rmSync(dirPath, { recursive: true, force: true });
+                  operations.push('🗑️ Klasor silindi:  ' + dirPath);
+                  console.log('Klasor silindi: ' + dirPath);
+                }
+              }
               
-          except requests.exceptions.RequestException as e:
-              print(f"✗ API Error: {str(e)}")
-              raise
-        shell: python
+              // Dosya silme
+              const deleteRegex = /---DELETE:\s*(.+?)\s*---/gs;
+              while ((match = deleteRegex.exec(aiResponse)) !== null) {
+                const filePath = match[1].trim();
+                if (fs.existsSync(filePath)) {
+                  fs.unlinkSync(filePath);
+                  operations. push('🗑️ Dosya silindi: ' + filePath);
+                  console.log('Dosya silindi: ' + filePath);
+                }
+              }
+              
+              // Dosya yazma
+              const fileRegex = /---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---/g;
+              while ((match = fileRegex.exec(aiResponse)) !== null) {
+                const filePath = match[1].trim();
+                let content = match[2];
+                content = content.replace(/^[\s\n]+|[\s\n]+$/g, '');
+                
+                const dir = path.dirname(filePath);
+                if (dir && dir !== '.' && !fs.existsSync(dir)) {
+                  fs.mkdirSync(dir, { recursive: true });
+                }
+                
+                fs.writeFileSync(filePath, content, 'utf8');
+                operations. push('✅ Yazildi: ' + filePath);
+                console.log('Yazildi: ' + filePath);
+              }
+              
+              core.setOutput('operations', operations. join('\n'));
+              core. setOutput('count', operations.length. toString());
+              core.setOutput('response', Buffer.from(aiResponse).toString('base64'));
+              core.setOutput('thinking', Buffer.from(thinking).toString('base64'));
+              core.setOutput('success', 'true');
+              
+            } catch (error) {
+              console.error('❌ Hata: ' + error.message);
+              core.setOutput('success', 'false');
+              core.setOutput('error', error.message);
+              core.setFailed(error. message);
+            }
 
-      - name: Create or update analysis document
-        id: create_analysis
+      - name: Derleme
+        id: build
+        if: steps.deepseek.outputs.success == 'true'
+        continue-on-error: true
         run: |
-          import os
-          import json
-          from datetime import datetime
-          
-          analysis = """${{ steps.deepseek_analysis.outputs.analysis }}"""
-          
-          analysis_content = f"""# Code Analysis Report
-## Generated: {datetime.utcnow().isoformat()}Z
-## Model: ${{ steps.model_selection.outputs.model }}
-## Complexity: ${{ steps.model_selection.outputs.complexity }}
+          set -euo pipefail
+          TYPE="${{ steps.detect.outputs.type }}"
+          echo "Derleme baslatiliyor...  (Tip: $TYPE)"
+          case "$TYPE" in
+            android)
+              if [ -f "gradlew" ]; then
+                chmod +x gradlew
+                ./gradlew assembleDebug -Pkotlin.suppressVersionCompatibilityCheck=true --no-daemon && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Derleme hatasi" >> $GITHUB_ENV
+              else
+                echo "BUILD_STATUS=Gradle wrapper bulunamadi" >> $GITHUB_ENV
+              fi
+              ;;
+            node)
+              if [ -f "package.json" ]; then
+                npm ci --silent || npm install --silent
+                npm run build --if-present && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Build hatasi" >> $GITHUB_ENV
+              else
+                echo "BUILD_STATUS=package.json bulunamadi" >> $GITHUB_ENV
+              fi
+              ;;
+            python)
+              if [ -f "requirements.txt" ]; then
+                pip install -r requirements.txt --quiet
+              fi
+              echo "BUILD_STATUS=Bagimliliklar yuklendi" >> $GITHUB_ENV
+              ;;
+            rust)
+              cargo build --release && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Cargo hatasi" >> $GITHUB_ENV
+              ;;
+            go)
+              go build ./... && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Go hatasi" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "BUILD_STATUS=Derleme gerekmedi" >> $GITHUB_ENV
+              ;;
+          esac
 
-{analysis}
-
----
-*This analysis was generated by DeepSeek Ultimate Workflow*
-"""
-          
-          # Write to file
-          os.makedirs('.github/analysis', exist_ok=True)
-          filename = f".github/analysis/analysis_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.md"
-          
-          with open(filename, 'w') as f:
-              f.write(analysis_content)
-          
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"analysis_file={filename}\n")
-          
-          print(f"✓ Analysis document created: {filename}")
-        shell: python
-
-      - name: Configure git
+      - name: Degisiklikleri Kaydet ve Gonder
+        if: steps.deepseek.outputs.success == 'true'
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          set -euo pipefail
+          echo "📋 Degisiklikler kontrol ediliyor..."
+          git add -A
+          
+          if ! git diff --cached --quiet; then
+            echo "✅ Degisiklikler tespit edildi"
+            TASK="${{ github.event. inputs.task || 'Otomatik guncelleme' }}"
+            TASK_SHORT=$(echo "$TASK" | head -c 100)
+            
+            git commit -m "🤖 DeepSeek Ultimate:  $TASK_SHORT" \
+              -m "Model: ${{ steps.model_selector.outputs.model }}" \
+              -m "Komplekslik: ${{ steps.model_selector.outputs.complexity }}" \
+              -m "Islem sayisi: ${{ steps. deepseek.outputs.count }}" \
+              -m "Proje tipi:  ${{ steps.detect.outputs. type }}"
+            
+            git push origin main
+            echo "✅ Push basarili!"
+          else
+            echo "⚠️ Degisiklik yok"
+          fi
 
-      - name: Commit and push analysis
-        id: push_changes
-        run: |
-          import subprocess
-          import os
-          
-          analysis_file = "${{ steps.create_analysis.outputs.analysis_file }}"
-          
-          # Check if file exists
-          if os.path.exists(analysis_file):
-              # Add the analysis file
-              subprocess.run(['git', 'add', analysis_file], check=True)
-              
-              # Check if there are changes to commit
-              result = subprocess.run(['git', 'diff', '--cached', '--quiet'], capture_output=True)
-              
-              if result.returncode != 0:
-                  # Create commit
-                  commit_msg = f"chore: Add DeepSeek analysis report from ${{ steps.model_selection.outputs.model }}"
-                  subprocess.run(['git', 'commit', '-m', commit_msg], check=True)
-                  
-                  # Push to current branch
-                  current_branch = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], 
-                                                capture_output=True, text=True).stdout.strip()
-                  subprocess.run(['git', 'push', 'origin', current_branch], check=True)
-                  
-                  print(f"✓ Changes pushed to {current_branch}")
-                  
-                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                      f.write(f"pushed=true\n")
-                      f.write(f"branch={current_branch}\n")
-              else:
-                  print("No changes to commit")
-                  with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                      f.write(f"pushed=false\n")
-          else:
-              print(f"Analysis file not found: {analysis_file}")
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f"pushed=false\n")
-        shell: python
-
-      - name: Handle file deletions
-        if: steps.changes.outputs.deleted_files != ''
-        run: |
-          import os
-          
-          deleted_files = "${{ steps.changes.outputs.deleted_files }}".split(',')
-          deleted_files = [f.strip() for f in deleted_files if f.strip()]
-          
-          if deleted_files:
-              print("📋 Deleted Files Summary:")
-              for idx, file in enumerate(deleted_files, 1):
-                  print(f"  {idx}. {file}")
-              
-              # Create deletion log
-              os.makedirs('.github/logs', exist_ok=True)
-              with open('.github/logs/deletions.log', 'a') as f:
-                  for file in deleted_files:
-                      f.write(f"[DELETED] {file}\n")
-              
-              print(f"\n✓ Deletion log updated")
-        shell: python
-
-      - name: Summary
+      - name: Sonuc Raporu
+        uses: actions/github-script@v7
         if: always()
-        run: |
-          echo "## DeepSeek Ultimate Workflow Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Model Selected:** ${{ steps.model_selection.outputs.model }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Task Complexity:** ${{ steps.model_selection.outputs.complexity }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Max Tokens:** ${{ env.MAX_TOKENS }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Files Changed:** $(echo '${{ steps.changes.outputs.changed_files }}' | wc -w)" >> $GITHUB_STEP_SUMMARY
-          echo "**Files Deleted:** $(echo '${{ steps.changes.outputs.deleted_files }}' | wc -w)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Analysis File:** ${{ steps.create_analysis.outputs.analysis_file }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Changes Pushed:** ${{ steps.push_changes.outputs.pushed }}" >> $GITHUB_STEP_SUMMARY
+        env:
+          OPERATIONS: ${{ steps.deepseek.outputs.operations }}
+          COUNT: ${{ steps.deepseek.outputs.count }}
+          SUCCESS: ${{ steps.deepseek.outputs.success }}
+          ERROR: ${{ steps.deepseek.outputs.error }}
+          BUILD_STATUS: ${{ env.BUILD_STATUS }}
+          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
+          PROJECT_DETAILS: ${{ steps. detect.outputs.details }}
+          MODEL: ${{ steps.model_selector.outputs.model }}
+          COMPLEXITY: ${{ steps.model_selector.outputs.complexity }}
+          THINKING_B64: ${{ steps.deepseek.outputs.thinking }}
+        with:
+          script: |
+            const success = process.env.SUCCESS === 'true';
+            const operations = process.env.OPERATIONS || 'Islem yapilmadi';
+            const count = process. env.COUNT || '0';
+            const buildStatus = process.env.BUILD_STATUS || 'Derleme yapilmadi';
+            const projectType = process.env.PROJECT_TYPE || 'general';
+            const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
+            const model = process.env.MODEL || 'deepseek-chat';
+            const complexity = process. env.COMPLEXITY || 'unknown';
+            let thinking = '';
+            
+            try {
+              thinking = Buffer.from(process.env. THINKING_B64 || '', 'base64').toString('utf-8');
+            } catch (e) {}
+            
+            const statusEmoji = success ? '✅ BASARILI' : '❌ HATA';
+            let report = '## 🤖 DeepSeek Ultimate Raporu\n\n';
+            
+            report += '| Ozellik | Deger |\n';
+            report += '|---------|-------|\n';
+            report += '| **Durum** | ' + statusEmoji + ' |\n';
+            report += '| **Model** | ' + model + ' |\n';
+            report += '| **Komplekslik** | ' + complexity + ' |\n';
+            report += '| **Proje Tipi** | ' + projectDetails + ' |\n';
+            report += '| **Islem Sayisi** | ' + count + ' |\n';
+            report += '| **Derleme** | ' + buildStatus + ' |\n\n';
+            
+            if (operations && operations !== 'Islem yapilmadi') {
+              report += '### 📝 Yapilan Islemler\n';
+              report += operations + '\n\n';
+            }
+            
+            if (! success && process.env.ERROR) {
+              report += '### ❌ Hata Detayi\n';
+              report += process.env.ERROR + '\n\n';
+            }
+            
+            if (thinking && thinking. length > 0) {
+              const thinkingPreview = thinking.substring(0, 3000);
+              report += '<details>\n<summary>🧠 AI Dusunce Sureci</summary>\n\n';
+              report += thinkingPreview;
+              if (thinking.length > 3000) {
+                report += '\n\n... [devami kisaltildi]';
+              }
+              report += '\n\n</details>\n';
+            }
+            
+            report += '\n---\n*🤖 DeepSeek Ultimate v3.2 tarafindan olusturuldu*';
+            
+            try {
+              if (context.issue && context.issue.number) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo. repo,
+                  issue_number: context.issue.number,
+                  body: report
+                });
+              } else {
+                core.info(report);
+              }
+            } catch (e) {
+              console.log("Yorum eklenemedi: " + e.message);
+            }
