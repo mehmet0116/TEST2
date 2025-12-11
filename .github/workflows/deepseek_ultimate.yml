@@ -103,19 +103,14 @@ jobs:
         run: |
           TASK="${{ github.event.inputs.task }}"
           
-          # 1. Seviye: Çok Zorlu / Yarışma Tipi Görevler (V3.2-Speciale - GEÇİCİ)
           if echo "$TASK" | grep -qiE "(IMO|CMO|ICPC|IOI|olympiad|gold-medal|ultimate reasoning|speciale)"; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com/v3.2_speciale_expires_on_20251215" >> $GITHUB_OUTPUT
             echo "complexity=speciale" >> $GITHUB_OUTPUT
-          
-          # 2. Seviye: Karmaşık Mühendislik Görevleri (V3.2 Reasoner)
-          elif echo "$TASK" | grep -iE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)" > /dev/null; then
+          elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)" > /dev/null; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
             echo "complexity=high" >> $GITHUB_OUTPUT
-          
-          # 3. Seviye: Genel / Basit Görevler (V3.2 Chat)
           else
             echo "model=deepseek-chat" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
