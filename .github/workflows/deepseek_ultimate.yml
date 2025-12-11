@@ -18,6 +18,8 @@ on:
 jobs:
   deepseek:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       GIT_COMMITTER_NAME: "github-actions[bot]"
       GIT_COMMITTER_EMAIL: "github-actions[bot]@users.noreply.github.com"
@@ -33,29 +35,6 @@ jobs:
         run: |
           git config --global user.name "${GIT_COMMITTER_NAME}"
           git config --global user.email "${GIT_COMMITTER_EMAIL}"
-          git config --global pull.rebase false
-          git config --global push.autoSetupRemote true
-
-      - name: Senkronizasyon
-        run: |
-          set -euo pipefail
-          echo "Uzak degisiklikler kontrol ediliyor..."
-          git fetch origin || true
-          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-          if [ -z "$CURRENT_BRANCH" ] || [ "$CURRENT_BRANCH" = "HEAD" ]; then
-            CURRENT_BRANCH="${GITHUB_REF##*/}"
-          fi
-          echo "Mevcut dal: $CURRENT_BRANCH"
-          if git ls-remote --exit-code origin "$CURRENT_BRANCH" >/dev/null 2>&1; then
-            if git diff --quiet HEAD origin/"$CURRENT_BRANCH" 2>/dev/null; then
-              echo "Yerel ve uzak senkronize."
-            else
-              echo "Uzak degisiklikler birlestiriliyor..."
-              git pull origin "$CURRENT_BRANCH" --no-edit --strategy-option=ours || true
-            fi
-          else
-            echo "Uzakta $CURRENT_BRANCH dalı bulunamadi; devam ediliyor."
-          fi
 
       - name: Proje Tipi Algilama
         id: detect
@@ -105,40 +84,9 @@ jobs:
           
           if echo "$TASK" | grep -iE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)" > /dev/null; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
-            echo "complexity=high" >> $GITHUB_OUTPUT
           else
             echo "model=deepseek-chat" >> $GITHUB_OUTPUT
-            echo "complexity=low" >> $GITHUB_OUTPUT
           fi
-
-      - name: (Optional) Java Kurulumu
-        if: steps.detect.outputs.type == 'android'
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: (Optional) Node.js Kurulumu
-        if: steps.detect.outputs.type == 'node'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: (Optional) Python Kurulumu
-        if: steps.detect.outputs.type == 'python'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: (Optional) Rust Kurulumu
-        if: steps.detect.outputs.type == 'rust'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: (Optional) Go Kurulumu
-        if: steps.detect.outputs.type == 'go'
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
 
       - name: Setup Python for DeepSeek
         uses: actions/setup-python@v4
@@ -232,7 +180,6 @@ jobs:
           ✅ Hata yönetimi ekle
           ✅ Türkçe yorum ekle
           ✅ Best practices uygula
-          ✅ Test kodunu dahil et
           ❌ Markdown code block kullanma (backtick yok)
           ❌ Eksik kod yazma
           ❌ Placeholder bırakma
@@ -301,117 +248,42 @@ jobs:
               sys.exit(1)
           PYTHON_EOF
 
-      - name: Derleme
-        id: build
-        if: steps.deepseek.outputs.success == 'true'
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          TYPE="${{ steps.detect.outputs.type }}"
-          echo "Derleme baslatiliyor... (Tip: $TYPE)"
-          case "$TYPE" in
-            android)
-              if [ -f "gradlew" ]; then
-                chmod +x gradlew
-                ./gradlew assembleDebug -Pkotlin.suppressVersionCompatibilityCheck=true --no-daemon && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Derleme hatasi" >> $GITHUB_ENV
-              else
-                echo "BUILD_STATUS=Gradle wrapper bulunamadi" >> $GITHUB_ENV
-              fi
-              ;;
-            node)
-              if [ -f "package.json" ]; then
-                npm ci --silent || npm install --silent
-                npm run build --if-present && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Build hatasi" >> $GITHUB_ENV
-              else
-                echo "BUILD_STATUS=package.json bulunamadi" >> $GITHUB_ENV
-              fi
-              ;;
-            python)
-              if [ -f "requirements.txt" ]; then
-                pip install -r requirements.txt --quiet
-              fi
-              echo "BUILD_STATUS=Bagimliliklar yuklendi" >> $GITHUB_ENV
-              ;;
-            rust)
-              cargo build --release && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Cargo hatasi" >> $GITHUB_ENV
-              ;;
-            go)
-              go build ./... && echo "BUILD_STATUS=Basarili" >> $GITHUB_ENV || echo "BUILD_STATUS=Go hatasi" >> $GITHUB_ENV
-              ;;
-            *)
-              echo "BUILD_STATUS=Derleme gerekmedi" >> $GITHUB_ENV
-              ;;
-          esac
-
-      - name: Degisiklikleri Kaydet
+      - name: Degisiklikleri Kaydet ve Gonder
         if: steps.deepseek.outputs.success == 'true'
         run: |
-          set -euo pipefail
-          echo "Degisiklikler kontrol ediliyor..."
           git add -A
           if git diff --cached --quiet; then
-            echo "Degisiklik yok"
-            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+            echo "Degisiklik yok, commit yapilmiyor."
           else
-            echo "Degisiklikler tespit edildi"
-            echo "HAS_CHANGES=true" >> $GITHUB_ENV
             TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik guncelleme' }}"
             TASK_SHORT=$(echo "$TASK" | head -c 100)
-            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Islem sayisi: ${{ steps.deepseek.outputs.count }}" -m "Proje tipi: ${{ steps.detect.outputs.type }}"
+            git commit -m "DeepSeek Update: $TASK_SHORT" -m "Islem: ${{ steps.deepseek.outputs.count }}"
+            
+            # Basit Push (Senkronizasyon yok, direkt gonder)
+            git push origin HEAD:${GITHUB_REF##*/}
           fi
-
-      - name: Degisiklikleri Gonder
-        if: env.HAS_CHANGES == 'true'
-        run: |
-          set -euo pipefail
-          echo "Degisiklikler gonderiliyor..."
-          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-          git pull origin "$CURRENT_BRANCH" --no-edit --strategy-option=ours || true
-          git push origin "$CURRENT_BRANCH"
-          echo "Push basarili!"
 
       - name: Sonuc Raporu
         uses: actions/github-script@v7
         if: always()
         env:
           OPERATIONS: ${{ steps.deepseek.outputs.operations }}
-          COUNT: ${{ steps.deepseek.outputs.count }}
           SUCCESS: ${{ steps.deepseek.outputs.success }}
           ERROR: ${{ steps.deepseek.outputs.error }}
-          BUILD_STATUS: ${{ env.BUILD_STATUS }}
-          PROJECT_TYPE: ${{ steps.detect.outputs.type }}
-          PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
-          MODEL: ${{ steps.model_selector.outputs.model }}
         with:
           script: |
             const success = process.env.SUCCESS === 'true';
             const operations = process.env.OPERATIONS || 'Islem yapilmadi';
-            const count = process.env.COUNT || '0';
-            const buildStatus = process.env.BUILD_STATUS || 'Derleme yapilmadi';
-            const projectType = process.env.PROJECT_TYPE || 'general';
-            const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
-            const model = process.env.MODEL || 'deepseek-chat';
             
-            const statusEmoji = success ? 'BASARILI' : 'HATA';
-            let report = '## DeepSeek Ultimate Raporu\n\n';
+            let report = '## DeepSeek Raporu\n';
+            report += success ? '✅ **İşlem Başarılı**\n\n' : '❌ **Hata Oluştu**\n\n';
             
-            report += '| Ozellik | Deger |\n';
-            report += '|---------|-------|\n';
-            report += '| **Durum** | ' + statusEmoji + ' |\n';
-            report += '| **Model** | ' + model + ' |\n';
-            report += '| **Proje Tipi** | ' + projectDetails + ' |\n';
-            report += '| **Islem Sayisi** | ' + count + ' |\n';
-            report += '| **Derleme** | ' + buildStatus + ' |\n\n';
-            
-            if (operations && operations !== 'Islem yapilmadi') {
-              report += '### Yapilan Islemler\n' + operations + '\n\n';
+            if (operations !== 'Islem yapilmadi') {
+              report += '### Değişiklikler\n' + operations + '\n';
             }
-            
             if (!success && process.env.ERROR) {
-              report += '### Hata Detayi\n' + process.env.ERROR + '\n\n';
+              report += '### Hata Detayı\n' + process.env.ERROR + '\n';
             }
-            
-            report += '\n---\n*DeepSeek Ultimate v3.2 (OpenAI SDK) tarafindan olusturuldu*';
             
             try {
               if (context.issue && context.issue.number) {
@@ -424,6 +296,4 @@ jobs:
               } else {
                 core.info(report);
               }
-            } catch (e) {
-              console.log("Yorum eklenemedi: " + e.message);
-            }
+            } catch (e) { console.log(e); }
