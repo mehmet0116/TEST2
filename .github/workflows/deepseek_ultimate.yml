@@ -340,7 +340,7 @@ jobs:
           MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
           # Direct HTTP helper (OpenAI-compatible)
-          def post_chat(api_base, api_key, model, messages, max_tokens=16000, temperature=0.7, timeout=60):
+          def post_chat(api_base, api_key, model, messages, max_tokens=8192, temperature=0.7, timeout=60):
               url = f"{api_base}/v1/chat/completions"
               headers = {
                   "Authorization": f"Bearer {api_key}",
@@ -386,7 +386,7 @@ jobs:
           for attempt in range(1, max_retries + 1):
               try:
                   resp = post_chat(api_base, api_key, MODEL, messages,
-                                   max_tokens=16000,
+                                   max_tokens=8192,
                                    temperature=0.5 if MODEL == 'deepseek-reasoner' else 0.7)
                   print("HTTP status:", resp.status_code)
                   if resp.status_code == 401:
