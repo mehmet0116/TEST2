@@ -107,7 +107,7 @@ jobs:
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com/v3.2_speciale_expires_on_20251215" >> $GITHUB_OUTPUT
             echo "complexity=speciale" >> $GITHUB_OUTPUT
-          elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)" > /dev/null; then
+          elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure|migration|integration|planning|strategy)"; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
             echo "complexity=high" >> $GITHUB_OUTPUT
@@ -117,41 +117,41 @@ jobs:
             echo "complexity=low" >> $GITHUB_OUTPUT
           fi
 
-      - name: (Optional) Java Kurulumu
+      - name: Java Kurulumu
         if: steps.detect.outputs.type == 'android'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: (Optional) Node.js Kurulumu
+      - name: Node.js Kurulumu
         if: steps.detect.outputs.type == 'node'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: (Optional) Python Kurulumu
+      - name: Python Kurulumu
         if: steps.detect.outputs.type == 'python'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: (Optional) Rust Kurulumu
+      - name: Rust Kurulumu
         if: steps.detect.outputs.type == 'rust'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: (Optional) Go Kurulumu
+      - name: Go Kurulumu
         if: steps.detect.outputs.type == 'go'
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
 
-      - name: Setup Python for DeepSeek
+      - name: Python Kurulumu (DeepSeek için)
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install OpenAI SDK
+      - name: OpenAI SDK Kurulumu
         run: pip install openai
 
       - name: DeepSeek Kodlama Motoru
