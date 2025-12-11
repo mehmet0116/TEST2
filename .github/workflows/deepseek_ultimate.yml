@@ -206,7 +206,7 @@ jobs:
           repoContext = ""
 
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
-          codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.gradle', '.sh'}
+          codeExtensions = {'.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.py', '.pyw', '.pyi', '.java', '.kt', '.kts', '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx', '.cs', '.fs', '.vb', '.go', '.rs', '.php', '.rb', '.pl', '.swift', '.sh', '.ps1'}
 
           def scanDirectory(directory, depth=0):
               global fileList, repoContext
@@ -237,7 +237,7 @@ jobs:
           scanDirectory('.')
           print(f"Taranan dosya: {len(fileList)}")
 
-          systemPrompt = f\"\"\"Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
+          systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
 
           PROJE BILGISI:
           - Tip: {os.environ.get('PROJECT_TYPE')}
@@ -270,7 +270,7 @@ jobs:
           ❌ Eksik kod yazma
           ❌ Placeholder bırakma
 
-          MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}\"\"\"
+          MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
           # API çağrısı için retry/backoff
           max_retries = 3
@@ -415,7 +415,7 @@ jobs:
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
             TASK="${{ github.event.inputs.task || (github.event.comment && github.event.comment.body) || (github.event.issue && github.event.issue.body) || 'Otomatik güncelleme' }}"
             TASK_SHORT=$(echo "$TASK" | head -c 100)
-            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Kompleksite: ${{ steps.model_selector.outputs.complexity }}" || true
+            git -c user.name="${GIT_COMMITTER_NAME}" -c user.email="${GIT_COMMITTER_EMAIL}" commit -m "DeepSeek Ultimate: $TASK_SHORT" -m "Model: ${{ steps.model_selector.outputs.model }}" -m "Komplek[...]
           fi
 
       - name: Değişiklikleri Gönder
