@@ -160,6 +160,7 @@ jobs:
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           BASE_URL: ${{ steps.model_selector.outputs.base_url }}
+          MODEL: ${{ steps.model_selector.outputs.model }}
         run: |
           python3 - <<'PY'
           import os, sys, requests
@@ -167,35 +168,48 @@ jobs:
               if k is None:
                   return None
               k = k.strip()
-              # remove surrounding quotes if present
               if (k.startswith("'") and k.endswith("'")) or (k.startswith('"') and k.endswith('"')):
                   k = k[1:-1].strip()
-              # remove leading byte-literal prefix b'...' or b"..."
               if (k.startswith("b'") and k.endswith("'")) or (k.startswith('b"') and k.endswith('"')):
                   k = k[2:-1]
-              # final strip of whitespace/newlines
               return k.strip()
 
           raw = os.environ.get('DEEPSEEK_API_KEY')
           key = sanitize_key(raw)
           if not key:
-              print("DEEPSEEK_API_KEY yok veya boş")
+              print("HATA: DEEPSEEK_API_KEY yok veya boş")
               sys.exit(1)
           base = (os.environ.get('BASE_URL') or "https://api.deepseek.com").rstrip('/')
-          url = base + "/v1/models"
+          model = os.environ.get('MODEL') or 'deepseek-chat'
+          
+          # ÖNERİLEN İYİLEŞTİRME: Sadece bağlantıyı değil, modelin erişilebilirliğini de kontrol et.
           try:
-              # length check (safe to print)
-              print("Key length:", len(key))
-              r = requests.get(url, headers={'Authorization': f'Bearer {key}'}, timeout=10)
+              # 1. API'nin genel olarak erişilebilir olduğunu kontrol et
+              url = base + "/v1/models"
+              print(f"API bağlantısı kontrol ediliyor: {url}")
+              r = requests.get(url, headers={'Authorization': f'Bearer {key}'}, timeout=15)
               print("Auth check HTTP status:", r.status_code)
               if r.status_code == 401:
-                  print("Unauthorized: DEEPSEEK_API_KEY geçersiz veya izin yok")
+                  print("HATA: DEEPSEEK_API_KEY geçersiz veya izin yok (401)")
                   sys.exit(2)
               r.raise_for_status()
-              print("DEEPSEEK API anahtar doğrulandı")
-          except Exception as e:
-              print("Auth check failed:", e)
+              models_data = r.json()
+              available_models = [m['id'] for m in models_data.get('data', [])]
+              print(f"Mevcut modeller: {', '.join(available_models)}")
+              
+              # 2. Seçilen modelin listede olup olmadığını kontrol et
+              if model not in available_models:
+                  print(f"UYARI: Seçilen model '{model}' API'nin listesinde görünmüyor.")
+                  print("Anahtarınızın bu modeli kullanma izni olmayabilir veya model adı değişmiş olabilir.")
+                  # Bu bir uyarı, işlemi durdurmuyor. Kullanıcıyı bilgilendiriyor.
+          except requests.exceptions.RequestException as e:
+              print(f"API bağlantı hatası: {e}")
               sys.exit(3)
+          except Exception as e:
+              print(f"Model listesi kontrolü sırasında beklenmedik hata: {e}")
+              # Beklenmedik hatalarda işleme devam etmeyi seçebiliriz.
+          
+          print("DEEPSEEK API anahtar doğrulaması ve model kontrolü tamamlandı.")
           PY
 
       - name: DeepSeek Kodlama Motoru
@@ -217,7 +231,6 @@ jobs:
           from pathlib import Path
           import requests
 
-          # GITHUB_OUTPUT helper: single-line or multiline safe
           GITHUB_OUTPUT = os.environ.get('GITHUB_OUTPUT', '/dev/null')
           def write_output(name: str, value: str):
               try:
@@ -234,7 +247,6 @@ jobs:
               except Exception:
                   pass
 
-          # Read envs
           api_key = os.environ.get('DEEPSEEK_API_KEY')
           api_base = (os.environ.get('BASE_URL') or "https://api.deepseek.com").rstrip('/')
           MODEL = os.environ.get('MODEL') or 'deepseek-chat'
@@ -242,15 +254,12 @@ jobs:
           PROJECT_TYPE = os.environ.get('PROJECT_TYPE', '')
           PROJECT_DETAILS = os.environ.get('PROJECT_DETAILS', '')
 
-          # Sanitize API key
           def sanitize_key(k: str) -> str:
               if k is None:
                   return None
               k = k.strip()
-              # remove surrounding quotes
               if (k.startswith("'") and k.endswith("'")) or (k.startswith('"') and k.endswith('"')):
                   k = k[1:-1].strip()
-              # remove leading byte literal b'...' or b"..."
               if (k.startswith("b'") and k.endswith("'")) or (k.startswith('b"') and k.endswith('"')):
                   k = k[2:-1]
               return k.strip()
@@ -263,7 +272,6 @@ jobs:
               write_output("error", msg)
               sys.exit(1)
 
-          # Scan repository for context
           fileList = []
           repoContext = ""
           ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
@@ -303,7 +311,6 @@ jobs:
           scanDirectory('.')
           print(f"Taranan dosya: {len(fileList)}")
 
-          # System prompt (triple-quoted f-string)
           systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
 
           PROJE BILGISI:
@@ -339,9 +346,17 @@ jobs:
 
           MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
 
-          # Direct HTTP helper (OpenAI-compatible)
           def post_chat(api_base, api_key, model, messages, max_tokens=8192, temperature=0.7, timeout=60):
-              url = f"{api_base}/v1/chat/completions"
+              # KRİTİK DÜZELTME: 'v3.2_speciale' gibi özel bir yol kullanılıyorsa, '/v1' ekini path'e göre akıllıca ekle.
+              # Örneğin: 'https://api.deepseek.com/v3.2_speciale_expires_on_20251215' -> '/chat/completions' direkt eklenir.
+              # Standart 'https://api.deepseek.com' ise -> '/v1/chat/completions' eklenir.
+              if "/v3.2_speciale" in api_base:
+                  # Özel endpoint'in kendi yol yapısı olduğunu varsayalım, '/v1' eklemiyoruz.
+                  url = f"{api_base}/chat/completions"
+              else:
+                  # Standart endpoint için OpenAI uyumlu yolu kullanıyoruz.
+                  url = f"{api_base}/v1/chat/completions"
+              
               headers = {
                   "Authorization": f"Bearer {api_key}",
                   "Content-Type": "application/json"
@@ -352,6 +367,7 @@ jobs:
                   "max_tokens": max_tokens,
                   "temperature": temperature
               }
+              print(f"API'ye istek gönderiliyor: {url}")
               return requests.post(url, headers=headers, json=payload, timeout=timeout)
 
           def parse_response(resp_json):
@@ -372,7 +388,6 @@ jobs:
                   pass
               return json.dumps(resp_json)
 
-          # Retry/backoff
           max_retries = 3
           backoff = 2
           aiResponse = None
@@ -395,9 +410,22 @@ jobs:
                       write_output("success","false")
                       write_output("error", msg)
                       sys.exit(1)
+                  if resp.status_code == 404:
+                      msg = f"Not Found (404): Endpoint bulunamadı. API URL'si veya yol yapısı yanlış olabilir: {resp.url}"
+                      print(msg)
+                      write_output("success","false")
+                      write_output("error", msg)
+                      sys.exit(1)
                   if not resp.ok:
                       raise Exception(f"HTTP {resp.status_code}: {resp.text[:1000]}")
                   data = resp.json()
+                  # EK GÜVENLİK: Yanıtın kesilip kesilmediğini kontrol et (finish_reason: "length")
+                  choices = data.get('choices', [{}])
+                  finish_reason = choices[0].get('finish_reason', '') if choices else ''
+                  if finish_reason == 'length':
+                      warning_msg = "UYARI: Modelin yanıtı max_tokens sınırından dolayı kesildi (truncated). Bu, dosya işleme komutlarını bozabilir. max_tokens değerini artırmayı veya prompt'u kısaltmayı düşünün."
+                      print(warning_msg)
+                      write_output("warning", warning_msg)
                   aiResponse = parse_response(data)
                   print("AI yanıtı alındı")
                   break
@@ -419,7 +447,6 @@ jobs:
               write_output("error", str(last_exc))
               sys.exit(1)
 
-          # Parse operations from aiResponse
           operations = []
           for m in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
               dirPath = m.group(1).strip()
@@ -441,7 +468,6 @@ jobs:
               Path(filePath).write_text(content, encoding='utf-8')
               operations.append(f"Yazıldı: {filePath}")
 
-          # Write outputs safely
           write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
           write_output("count", str(len(operations)))
           write_output("success", "true")
@@ -524,6 +550,7 @@ jobs:
           COUNT: ${{ steps.deepseek.outputs.count }}
           SUCCESS: ${{ steps.deepseek.outputs.success }}
           ERROR: ${{ steps.deepseek.outputs.error }}
+          WARNING: ${{ steps.deepseek.outputs.warning }}
           BUILD_STATUS: ${{ env.BUILD_STATUS }}
           PROJECT_TYPE: ${{ steps.detect.outputs.type }}
           PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
@@ -539,6 +566,7 @@ jobs:
             const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
             const model = process.env.MODEL || 'deepseek-chat';
             const complexity = process.env.COMPLEXITY || 'low';
+            const warning = process.env.WARNING || '';
             
             const statusEmoji = success ? '✅ BAŞARILI' : '❌ HATA';
             let report = '## DeepSeek Ultimate Raporu\n\n';
@@ -551,6 +579,10 @@ jobs:
             report += '| **Proje Tipi** | ' + projectDetails + ' |\n';
             report += '| **İşlem Sayısı** | ' + count + ' |\n';
             report += '| **Derleme** | ' + buildStatus + ' |\n\n';
+            
+            if (warning) {
+              report += '### ⚠️ Uyarı\n' + warning + '\n\n';
+            }
             
             if (operations && operations !== 'İşlem yapılmadı') {
               report += '### Yapılan İşlemler\n' + operations + '\n\n';
