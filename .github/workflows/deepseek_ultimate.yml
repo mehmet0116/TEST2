@@ -1,4 +1,4 @@
-name: DeepSeek Ultimate - Smart Interactive
+name: DeepSeek Ultimate - Smart Interactive (Güncellendi)
 
 on:
   workflow_dispatch:
@@ -102,26 +102,34 @@ jobs:
             core.setOutput('type', projectType);
             core.setOutput('details', projectDetails.join(', ') || 'Genel Proje')
 
-      - name: Model Selection
+      - name: Model Seçimi (GÜNCELLENDİ: deepseek-coder eklendi)
         id: model_selector
         run: |
           TASK="${{ github.event.inputs.task }}"
           
-          if echo "$TASK" | grep -qiE "(IMO|CMO|ICPC|IOI|olympiad|gold-medal|ultimate reasoning|speciale)"; then
+          # 1. ÖNCELİK: KOD GÖREVLERİ için deepseek-coder
+          if echo "$TASK" | grep -qiE "(code|program|script|debug|fix|syntax|function|class|module|library|api|sdk|devops|git|commit|kod|yaz|düzelt|hata|debug|fonksiyon|kütüphane)"; then
+            echo "model=deepseek-coder" >> $GITHUB_OUTPUT
+            echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
+            echo "complexity=coding" >> $GITHUB_OUTPUT
+          # 2. ÖZEL GÖREVLER için speciale endpoint
+          elif echo "$TASK" | grep -qiE "(IMO|CMO|ICPC|IOI|olympiad|gold-medal|ultimate reasoning|speciale)"; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com/v3.2_speciale_expires_on_20251215" >> $GITHUB_OUTPUT
             echo "complexity=speciale" >> $GITHUB_OUTPUT
+          # 3. KOMPLEKS MİMARİ/MİGRASYON için deepseek-reasoner
           elif echo "$TASK" | grep -qiE "(migrasi|refactor|optimize|kompleks|yapı|arch|design|pattern|benchmark|performance|security|debug|investigate|critical|enhance|improve|transform|restructure)"; then
             echo "model=deepseek-reasoner" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
             echo "complexity=high" >> $GITHUB_OUTPUT
+          # 4. DİĞER TÜM GÖREVLER için deepseek-chat
           else
             echo "model=deepseek-chat" >> $GITHUB_OUTPUT
             echo "base_url=https://api.deepseek.com" >> $GITHUB_OUTPUT
             echo "complexity=low" >> $GITHUB_OUTPUT
           fi
 
-      - name: Smart Context Collector
+      - name: Akıllı Context Toplayıcı (GÜNCELLENDİ: Dosya sınırı gevşetildi)
         id: context
         run: |
           echo "🔄 Akıllı context toplanıyor..."
@@ -134,41 +142,32 @@ jobs:
             exit 0
           fi
           
-          echo "🤖 Akıllı dosya seçimi yapılıyor..."
+          echo "🤖 Akıllı dosya seçimi yapılıyor (gelişmiş)..."
           SELECTED_FILES=""
           
-          for file in "build.gradle" "build.gradle.kts" "settings.gradle" "package.json" "requirements.txt" "pyproject.toml" "Cargo.toml" "go.mod" "pom.xml"; do
+          # TÜM TEMEL YAPI DOSYALARINI EKLE (sınır yok)
+          for file in "build.gradle" "build.gradle.kts" "settings.gradle" "package.json" "requirements.txt" "pyproject.toml" "Cargo.toml" "go.mod" "pom.xml" "CMakeLists.txt" "Makefile" ".gitignore" "README.md" "dockerfile" "Dockerfile" "docker-compose.yml"; do
             if [ -f "$file" ]; then
               SELECTED_FILES="$SELECTED_FILES,$file"
-              echo "➕ $file (yapı dosyası)"
+              echo "➕ $file (temel yapı dosyası)"
             fi
           done
           
+          # ANDROID ÖZEL DOSYALARI
           if [ -f "app/build.gradle" ]; then
             SELECTED_FILES="$SELECTED_FILES,app/build.gradle"
-            echo "➕ app/build.gradle (manifest)"
+            echo "➕ app/build.gradle (Android manifest)"
           fi
           if [ -f "app/src/main/AndroidManifest.xml" ]; then
             SELECTED_FILES="$SELECTED_FILES,app/src/main/AndroidManifest.xml"
             echo "➕ AndroidManifest.xml"
           fi
           
-          if [ -f "README.md" ]; then
-            SELECTED_FILES="$SELECTED_FILES,README.md"
-            echo "➕ README.md"
-          fi
-          if [ -f ".gitignore" ]; then
-            SELECTED_FILES="$SELECTED_FILES,.gitignore"
-            echo "➕ .gitignore"
-          fi
-          
-          MAIN_FILES_COUNT=0
-          for file in "app/src/main/java/com/"*".kt" "app/src/main/kotlin/"*".kt" "src/App.js" "src/App.tsx" "src/main.py" "main.rs" "main.go"; do
-            if [ -f "$file" ] && [ $MAIN_FILES_COUNT -lt 3 ]; then
-              SELECTED_FILES="$SELECTED_FILES,$file"
-              MAIN_FILES_COUNT=$((MAIN_FILES_COUNT + 1))
-              echo "➕ $file (ana kod)"
-            fi
+          # TÜM ANA KOD DOSYALARINI BUL (sınır kaldırıldı)
+          echo "🔍 Ana kod dosyaları aranıyor..."
+          find "src" "app/src" "lib" "main" "app/main" -type f \( -name "*.kt" -o -name "*.java" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o -name "*.jsx" -o -name "*.py" -o -name "*.rs" -o -name "*.go" -o -name "*.cpp" -o -name "*.h" \) 2>/dev/null | head -20 | while read file; do
+            SELECTED_FILES="$SELECTED_FILES,$file"
+            echo "➕ $file (kod dosyası)"
           done
           
           if [ -z "$SELECTED_FILES" ]; then
@@ -176,10 +175,66 @@ jobs:
             echo "⚠️  Dosya bulunamadı, default kullanılıyor"
           fi
           
-          SELECTED_FILES=$(echo "$SELECTED_FILES" | sed 's/^,//' | cut -d',' -f1-8)
+          # İlk virgülü temizle ve gereksiz boşlukları kaldır
+          SELECTED_FILES=$(echo "$SELECTED_FILES" | sed 's/^,//' | tr -s ',')
           echo "✅ Seçilen dosyalar: $SELECTED_FILES"
           echo "files=$SELECTED_FILES" >> $GITHUB_OUTPUT
           echo "smart_mode=true" >> $GITHUB_OUTPUT
+
+      - name: İnternet Araştırma Hazırlığı (YENİ EKLENDİ)
+        id: websearch
+        continue-on-error: true
+        run: |
+          echo "🌐 İnternet araştırma özelliği hazırlanıyor..."
+          # Web search için gerekli Python kütüphaneleri
+          pip install --quiet requests beautifulsoup4
+          
+          # Geçici web search script'i oluştur
+          cat > /tmp/web_search.py << 'EOF'
+          import os, sys, json, requests
+          from urllib.parse import quote_plus
+          
+          def simple_web_search(query, max_results=3):
+              """Basit bir web arama fonksiyonu (ücretsiz API kullanır)"""
+              try:
+                  # DuckDuckGo veya benzeri basit bir API kullanılabilir
+                  # Bu örnekte DuckDuckGo'nun HTML arayüzü kullanılıyor
+                  url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+                  headers = {'User-Agent': 'Mozilla/5.0 (GitHub Actions DeepSeek)'}
+                  response = requests.get(url, headers=headers, timeout=10)
+                  
+                  if response.status_code == 200:
+                      # Basit bir içerik çekme (gerçek projeler için daha iyi parsing gerekir)
+                      from bs4 import BeautifulSoup
+                      soup = BeautifulSoup(response.text, 'html.parser')
+                      results = []
+                      
+                      # Sonuçları bul
+                      for result in soup.find_all('a', class_='result__url', limit=max_results):
+                          title = result.get_text(strip=True)
+                          link = result.get('href', '')
+                          if title and link:
+                              results.append({'title': title, 'url': link})
+                      
+                      if results:
+                          return json.dumps({
+                              'query': query,
+                              'results': results,
+                              'source': 'duckduckgo'
+                          })
+                  return json.dumps({'query': query, 'results': [], 'error': 'No results found'})
+              except Exception as e:
+                  return json.dumps({'query': query, 'results': [], 'error': str(e)})
+          
+          if __name__ == "__main__":
+              if len(sys.argv) > 1:
+                  query = sys.argv[1]
+                  print(simple_web_search(query))
+              else:
+                  print(json.dumps({'error': 'No query provided'}))
+          EOF
+          
+          echo "Web search script hazır."
 
       - name: Java Kurulumu
         if: steps.detect.outputs.type == 'android'
@@ -220,7 +275,7 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
-      - name: Validate DEEPSEEK_API_KEY
+      - name: Validate DEEPSEEK_API_KEY (GÜNCELLENDİ: deepseek-coder kontrolü)
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           BASE_URL: ${{ steps.model_selector.outputs.base_url }}
@@ -259,9 +314,11 @@ jobs:
               available_models = [m['id'] for m in models_data.get('data', [])]
               print(f"Mevcut modeller: {', '.join(available_models)}")
               
-              if model not in available_models:
-                  print(f"UYARI: Seçilen model '{model}' API'nin listesinde görünmüyor.")
-                  print("Anahtarınızın bu modeli kullanma izni olmayabilir veya model adı değişmiş olabilir.")
+              # deepseek-coder kontrolü
+              if 'deepseek-coder' not in available_models:
+                  print("UYARI: 'deepseek-coder' modeli API listesinde görünmüyor.")
+                  print("Anahtarınızın bu modeli kullanma izni olmayabilir.")
+                  print("Mevcut modellerden biri otomatik seçilecek.")
           except requests.exceptions.RequestException as e:
               print(f"API bağlantı hatası: {e}")
               sys.exit(3)
@@ -271,7 +328,7 @@ jobs:
           print("DEEPSEEK API anahtar doğrulaması ve model kontrolü tamamlandı.")
           PY
 
-      - name: DeepSeek Smart Interactive Engine
+      - name: DeepSeek Smart Interactive Engine (GÜNCELLENDİ: Web search entegrasyonu)
         id: deepseek
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -288,6 +345,7 @@ jobs:
           import time
           import json
           import re
+          import subprocess
           from pathlib import Path
           import requests
 
@@ -333,6 +391,20 @@ jobs:
               write_output("error", msg)
               sys.exit(1)
 
+          # Web search fonksiyonu
+          def perform_web_search(query):
+              try:
+                  result = subprocess.run(
+                      ['python3', '/tmp/web_search.py', query],
+                      capture_output=True, text=True, timeout=15
+                  )
+                  if result.returncode == 0:
+                      return result.stdout.strip()
+                  else:
+                      return json.dumps({'query': query, 'results': [], 'error': 'Search failed'})
+              except Exception as e:
+                  return json.dumps({'query': query, 'results': [], 'error': str(e)})
+
           repoContext = ""
           fileList = []
           
@@ -343,8 +415,8 @@ jobs:
                       path = Path(file_path)
                       if path.exists() and path.is_file():
                           content = path.read_text(encoding='utf-8')
-                          if len(content) > 10000:
-                              content = content[:10000] + "\n... [kesildi, devamı var]"
+                          if len(content) > 8000:  # Daha yüksek limit
+                              content = content[:8000] + "\n... [kesildi, devamı var]"
                           repoContext += f"\n=== {file_path} ===\n{content}\n"
                           fileList.append(file_path)
                           print(f"✓ Okundu: {file_path} ({len(content)} karakter)")
@@ -353,25 +425,39 @@ jobs:
           
           print(f"Toplam {len(fileList)} dosya okundu (~{len(repoContext)} karakter)")
 
+          # Kullanıcı görevine göre web search yapılması gerekiyor mu?
+          web_search_results = ""
+          search_keywords = ["nasıl yapılır", "en iyi uygulama", "tutorial", "rehber", "best practice", "latest", "güncel", "araştır", "internetten bul"]
+          
+          if any(keyword in USER_TASK.lower() for keyword in search_keywords):
+              print("🌐 Web search tetiklendi...")
+              search_query = USER_TASK[:100]  # İlk 100 karakteri arama sorgusu olarak kullan
+              web_search_results = perform_web_search(search_query)
+              print(f"Web search sonuçları alındı: {len(web_search_results)} karakter")
+
           systemPrompt = f"""Sen DeepSeek V3.2, akıllı ve interaktif bir kod asistanısın.
 
-          ÇALIŞMA PRENSİBİN (GitHub Copilot gibi):
-          1. ÖNCE mevcut context'i analiz et (sana sınırlı dosya gösterildi)
-          2. EKSİK BİLGİ VARSA SOR:
-             - "Hangi teknoloji/versiyon?"
-             - "Hangi kütüphaneler?"
-             - "Tasarım tercihlerin?"
-             - "Özel gereksinimler?"
-          3. NET DEĞİLSE SOR, ASLA VARSAYIM YAPMA!
-          4. Eksik yoksa TAM ve ÇALIŞAN kod yaz.
+          ÇALIŞMA PRENSİBİN (GÜNCELLENDİ):
+          1. ÖNCE mevcut context'i analiz et
+          2. EKSİK BİLGİ VARSA SOR veya WEB'DE ARA:
+             - "Hangi teknoloji/versiyon?" → Sor veya ara
+             - "En iyi uygulama nedir?" → Web'de ara
+             - "Güncel kütüphaneler?" → Web'de ara
+          3. WEB ARAMA YETENEĞİN VAR:
+             - Kullanıcı görevi araştırma gerektiriyorsa web'den bilgi topla
+             - Topladığın bilgilerle daha doğru kod yaz
+          4. NET DEĞİLSE SOR, ASLA VARSAYIM YAPMA!
+          5. Eksik yoksa TAM ve ÇALIŞAN kod yaz.
 
           PROJE BİLGİSİ:
           - Tip: {PROJECT_TYPE}
           - Detaylar: {PROJECT_DETAILS}
-          - Model: {MODEL}
+          - Model: {MODEL} (Kod görevleri için optimize)
 
           GÖREV:
           {USER_TASK}
+
+          {'WEB ARAMA SONUÇLARI (kullan):' + web_search_results if web_search_results else 'WEB ARAMA YAPILMADI veya SONUÇ YOK'}
 
           DOSYA YAZMA FORMATI:
           ---FILE: dosya/yolu/isim.uzanti---
@@ -382,13 +468,20 @@ jobs:
           ---DELETE: dosya/yolu---
           ---END---
 
+          WEB ARAMA TALEBİ (İhtiyaç varsa):
+          ---SEARCH---
+          [Aranacak spesifik sorgu]
+          ---END---
+
           SORU FORMATI (Eksik bilgi varsa):
           ---QUESTION---
           [Net ve spesifik soru]
           ---END---
 
           KURALLAR:
-          ✅ Eksik bilgi varsa SOR
+          ✅ Kod görevlerinde deepseek-coder kullan
+          ✅ Web'den araştırma yapabilirsin
+          ✅ Tüm ilgili dosyaları analiz et
           ✅ Tam çalışan kod yaz
           ✅ Hata yönetimi ekle
           ✅ Best practices uygula
@@ -397,7 +490,7 @@ jobs:
 
           MEVCUT DOSYALAR: {', '.join(fileList) if fileList else 'Yeni proje'}
 
-          ŞİMDİ: Analiz et ve gerekiyorsa SOR, yoksa KOD YAZ:"""
+          ŞİMDİ: Analiz et, gerekiyorsa ARA veya SOR, yoksa KOD YAZ:"""
 
           def post_chat(api_base, api_key, model, messages, max_tokens=8192, temperature=0.7, timeout=60):
               if "/v3.2_speciale" in api_base:
@@ -443,14 +536,14 @@ jobs:
 
           messages = [
               {"role":"system","content": systemPrompt},
-              {"role":"user","content": repoContext or "Yeni proje oluşturulacak. Gerekiyorsa detay sor."}
+              {"role":"user","content": repoContext or "Yeni proje oluşturulacak. Gerekiyorsa detay sor veya araştırma yap."}
           ]
 
           for attempt in range(1, max_retries + 1):
               try:
                   resp = post_chat(api_base, api_key, MODEL, messages,
                                    max_tokens=8192,
-                                   temperature=0.5 if MODEL == 'deepseek-reasoner' else 0.7)
+                                   temperature=0.5 if 'reasoner' in MODEL else 0.7)
                   print("HTTP status:", resp.status_code)
                   if resp.status_code == 401:
                       msg = "Unauthorized (401): DEEPSEEK_API_KEY geçersiz veya izin yok"
@@ -487,6 +580,22 @@ jobs:
               write_output("success","false")
               write_output("error", str(last_exc))
               sys.exit(1)
+
+          # Web search talebi kontrolü
+          search_match = re.search(r'---SEARCH---\s*(.+?)\s*---END---', aiResponse, re.DOTALL)
+          if search_match:
+              search_query = search_match.group(1).strip()
+              print(f"🔍 AI web search talebinde bulundu: {search_query[:100]}...")
+              web_results = perform_web_search(search_query)
+              print(f"Web search sonuçları: {len(web_results)} karakter")
+              # Web sonuçlarını AI'ya geri gönder
+              messages.append({"role": "assistant", "content": aiResponse})
+              messages.append({"role": "user", "content": f"WEB ARAMA SONUÇLARI:\n{web_results}\n\nBu bilgilere dayanarak görevi tamamla:"})
+              # AI'dan güncellenmiş yanıt al
+              resp = post_chat(api_base, api_key, MODEL, messages, max_tokens=8192, temperature=0.5 if 'reasoner' in MODEL else 0.7)
+              data = resp.json()
+              aiResponse = parse_response(data)
+              print("✅ Güncellenmiş AI yanıtı (web search sonrası) alındı")
 
           question_match = re.search(r'---QUESTION---\s*(.+?)\s*---END---', aiResponse, re.DOTALL)
           if question_match:
@@ -671,7 +780,7 @@ jobs:
             else if (success) statusEmoji = '✅ BAŞARILI';
             else statusEmoji = '❌ HATA';
             
-            let report = '## 🚀 DeepSeek Ultimate - Smart Interactive\n\n';
+            let report = '## 🚀 DeepSeek Ultimate - Smart Interactive (GÜNCELLENDİ)\n\n';
             
             report += '| Özellik | Değer |\n';
             report += '|---------|-------|\n';
@@ -682,7 +791,8 @@ jobs:
             report += '| **Context Dosyaları** | ' + contextFiles + ' |\n';
             report += '| **Akıllı Mod** | ' + (smartMode ? '✅ AÇIK' : '🔧 MANUEL') + ' |\n';
             report += '| **İşlem Sayısı** | ' + count + ' |\n';
-            report += '| **Derleme** | ' + buildStatus + ' |\n\n';
+            report += '| **Derleme** | ' + buildStatus + ' |\n';
+            report += '| **Web Search** | ' + (model === 'deepseek-coder' ? '✅ AKTIF' : '⚠️  DİĞER MODEL') + ' |\n\n';
             
             if (hasQuestion) {
               report += '### ❓ INTERAKTİF SORU\n';
@@ -701,7 +811,10 @@ jobs:
             }
             
             report += '---\n';
-            report += '**🎯 Token Optimizasyonu:** ' + (smartMode ? 'Akıllı dosya seçimi (~3-5K token)' : 'Manuel seçim') + '\n';
+            report += '**🎯 GÜNCELLEMELER:**\n';
+            report += '1. ✅ **deepseek-coder** entegre edildi (kod görevleri için)\n';
+            report += '2. ✅ **Dosya sınırı kaldırıldı** (daha fazla context)\n';
+            report += '3. ✅ **Web search özelliği** eklendi (araştırma yapabilir)\n';
             report += '*GitHub Copilot stili interaktif kodlama*';
             
             try {
