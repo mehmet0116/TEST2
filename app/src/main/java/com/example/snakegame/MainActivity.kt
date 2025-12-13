@@ -1,147 +1,106 @@
 package com.example.snakegame
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.MotionEvent
-import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.example.snakegame.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
     
-    private lateinit var binding: ActivityMainBinding
-    private lateinit var gameView: GameView
-    private lateinit var scoreTextView: TextView
-    private lateinit var highScoreTextView: TextView
-    private lateinit var startButton: Button
-    private lateinit var pauseButton: Button
-    private lateinit var restartButton: Button
-    
-    private var gameHandler = Handler(Looper.getMainLooper())
-    private var isGameRunning = false
-    private var isPaused = false
+    private lateinit var snakeGameView: SnakeGameView
+    private lateinit var tvScore: TextView
+    private lateinit var tvHighScore: TextView
+    private lateinit var tvGameOver: TextView
+    private lateinit var btnControl: Button
+    private lateinit var btnRestart: Button
+    private lateinit var btnExit: Button
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_main)
         
-        initializeViews()
-        setupClickListeners()
-    }
-    
-    private fun initializeViews() {
-        gameView = binding.gameView
-        scoreTextView = binding.scoreTextView
-        highScoreTextView = binding.highScoreTextView
-        startButton = binding.startButton
-        pauseButton = binding.pauseButton
-        restartButton = binding.restartButton
+        // View'leri bağla
+        snakeGameView = findViewById(R.id.snakeGameView)
+        tvScore = findViewById(R.id.tvScore)
+        tvHighScore = findViewById(R.id.tvHighScore)
+        tvGameOver = findViewById(R.id.tvGameOver)
+        btnControl = findViewById(R.id.btnControl)
+        btnRestart = findViewById(R.id.btnRestart)
+        btnExit = findViewById(R.id.btnExit)
         
-        updateScoreDisplay()
-    }
-    
-    private fun setupClickListeners() {
-        startButton.setOnClickListener {
-            if (!isGameRunning) {
-                startGame()
+        // Oyun durumunu güncelle
+        updateScore()
+        updateHighScore()
+        
+        // Kontrol butonu
+        btnControl.setOnClickListener {
+            if (snakeGameView.isGameRunning()) {
+                if (snakeGameView.isGamePaused()) {
+                    snakeGameView.resumeGame()
+                    btnControl.text = getString(R.string.pause_game)
+                } else {
+                    snakeGameView.pauseGame()
+                    btnControl.text = getString(R.string.resume_game)
+                }
+            } else {
+                snakeGameView.startGame()
+                btnControl.text = getString(R.string.pause_game)
+                tvGameOver.visibility = TextView.GONE
             }
         }
         
-        pauseButton.setOnClickListener {
-            if (isGameRunning) {
-                if (isPaused) {
-                    resumeGame()
-                } else {
-                    pauseGame()
+        // Yeniden başlat butonu
+        btnRestart.setOnClickListener {
+            snakeGameView.restartGame()
+            btnControl.text = getString(R.string.start_game)
+            tvGameOver.visibility = TextView.GONE
+            updateScore()
+        }
+        
+        // Çıkış butonu
+        btnExit.setOnClickListener {
+            finish()
+        }
+        
+        // Oyun durum değişikliklerini dinle
+        snakeGameView.setOnGameStateChangeListener(object : SnakeGameView.OnGameStateChangeListener {
+            override fun onScoreChanged(score: Int) {
+                updateScore()
+            }
+            
+            override fun onGameOver() {
+                runOnUiThread {
+                    tvGameOver.visibility = TextView.VISIBLE
+                    btnControl.text = getString(R.string.start_game)
+                    updateHighScore()
                 }
             }
-        }
-        
-        restartButton.setOnClickListener {
-            restartGame()
-        }
-    }
-    
-    private fun startGame() {
-        isGameRunning = true
-        isPaused = false
-        gameView.resetGame()
-        startButton.visibility = View.GONE
-        pauseButton.visibility = View.VISIBLE
-        restartButton.visibility = View.VISIBLE
-        pauseButton.text = getString(R.string.pause)
-        
-        gameHandler.post(object : Runnable {
-            override fun run() {
-                if (isGameRunning && !isPaused) {
-                    gameView.update()
-                    updateScoreDisplay()
-                    
-                    if (gameView.isGameOver()) {
-                        gameOver()
-                    } else {
-                        gameHandler.postDelayed(this, 150) // Game speed
-                    }
+            
+            override fun onGameStarted() {
+                runOnUiThread {
+                    btnControl.text = getString(R.string.pause_game)
                 }
             }
         })
     }
     
-    private fun pauseGame() {
-        isPaused = true
-        pauseButton.text = getString(R.string.resume)
+    private fun updateScore() {
+        tvScore.text = getString(R.string.score, snakeGameView.getScore())
     }
     
-    private fun resumeGame() {
-        isPaused = false
-        pauseButton.text = getString(R.string.pause)
-        gameHandler.post { startGame() }
-    }
-    
-    private fun restartGame() {
-        gameHandler.removeCallbacksAndMessages(null)
-        isGameRunning = false
-        isPaused = false
-        gameView.resetGame()
-        updateScoreDisplay()
-        startButton.visibility = View.VISIBLE
-        pauseButton.visibility = View.GONE
-        restartButton.visibility = View.GONE
-    }
-    
-    private fun gameOver() {
-        isGameRunning = false
-        pauseButton.visibility = View.GONE
-        restartButton.visibility = View.VISIBLE
-        startButton.visibility = View.VISIBLE
-        startButton.text = getString(R.string.start_game)
-    }
-    
-    private fun updateScoreDisplay() {
-        scoreTextView.text = getString(R.string.score, gameView.getScore())
-        highScoreTextView.text = getString(R.string.high_score, gameView.getHighScore())
-    }
-    
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (isGameRunning && !isPaused) {
-            gameView.handleSwipe(event)
-        }
-        return super.onTouchEvent(event)
+    private fun updateHighScore() {
+        tvHighScore.text = getString(R.string.high_score, snakeGameView.getHighScore())
     }
     
     override fun onPause() {
         super.onPause()
-        if (isGameRunning && !isPaused) {
-            pauseGame()
-        }
+        snakeGameView.pauseGame()
     }
     
-    override fun onDestroy() {
-        super.onDestroy()
-        gameHandler.removeCallbacksAndMessages(null)
+    override fun onResume() {
+        super.onResume()
+        if (snakeGameView.isGameRunning() && !snakeGameView.isGamePaused()) {
+            snakeGameView.resumeGame()
+        }
     }
 }

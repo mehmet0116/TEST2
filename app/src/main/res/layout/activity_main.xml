@@ -8,104 +8,85 @@
     tools:context=".MainActivity">
 
     <TextView
-        android:id="@+id/titleTextView"
+        android:id="@+id/tvScore"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Snake Game"
-        android:textColor="@color/text_color"
-        android:textSize="28sp"
+        android:layout_marginTop="16dp"
+        android:text="@string/score"
+        android:textColor="@color/white"
+        android:textSize="20sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        android:layout_marginTop="16dp" />
+        app:layout_constraintTop_toTopOf="parent" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
+    <TextView
+        android:id="@+id/tvHighScore"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="8dp"
+        android:text="@string/high_score"
+        android:textColor="@color/white"
+        android:textSize="16sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/titleTextView">
+        app:layout_constraintTop_toBottomOf="@+id/tvScore" />
 
-        <TextView
-            android:id="@+id/scoreTextView"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/score"
-            android:textColor="@color/text_color"
-            android:textSize="18sp"
-            android:gravity="center"
-            android:layout_margin="8dp" />
-
-        <TextView
-            android:id="@+id/highScoreTextView"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/high_score"
-            android:textColor="@color/text_color"
-            android:textSize="18sp"
-            android:gravity="center"
-            android:layout_margin="8dp" />
-    </LinearLayout>
-
-    <com.example.snakegame.GameView
-        android:id="@+id/gameView"
-        android:layout_width="0dp"
+    <com.example.snakegame.SnakeGameView
+        android:id="@+id/snakeGameView"
+        android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_margin="16dp"
-        app:layout_constraintBottom_toTopOf="@+id/buttonLayout"
+        app:layout_constraintBottom_toTopOf="@+id/btnControl"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/scoreLayout"
-        app:layout_constraintDimensionRatio="1:1" />
+        app:layout_constraintTop_toBottomOf="@+id/tvHighScore" />
 
-    <LinearLayout
-        android:id="@+id/buttonLayout"
-        android:layout_width="match_parent"
+    <Button
+        android:id="@+id/btnControl"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center"
-        android:layout_margin="16dp"
+        android:layout_marginBottom="16dp"
+        android:text="@string/start_game"
+        android:textAllCaps="false"
+        app:layout_constraintBottom_toTopOf="@+id/btnRestart"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btnRestart"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:text="@string/restart"
+        android:textAllCaps="false"
+        app:layout_constraintBottom_toTopOf="@+id/btnExit"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <Button
+        android:id="@+id/btnExit"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="32dp"
+        android:text="@string/exit"
+        android:textAllCaps="false"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
+        app:layout_constraintStart_toStartOf="parent" />
 
-        <Button
-            android:id="@+id/startButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/start_game"
-            android:backgroundTint="@color/button_color"
-            android:textColor="@color/white"
-            android:layout_margin="8dp"
-            android:padding="12dp" />
-
-        <Button
-            android:id="@+id/pauseButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/pause"
-            android:backgroundTint="@color/button_color"
-            android:textColor="@color/white"
-            android:layout_margin="8dp"
-            android:padding="12dp"
-            android:visibility="gone" />
-
-        <Button
-            android:id="@+id/restartButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/restart"
-            android:backgroundTint="@color/button_color"
-            android:textColor="@color/white"
-            android:layout_margin="8dp"
-            android:padding="12dp"
-            android:visibility="gone" />
-    </LinearLayout>
+    <TextView
+        android:id="@+id/tvGameOver"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/game_over"
+        android:textColor="#FF0000"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/snakeGameView"
+        app:layout_constraintEnd_toEndOf="@+id/snakeGameView"
+        app:layout_constraintStart_toStartOf="@+id/snakeGameView"
+        app:layout_constraintTop_toTopOf="@+id/snakeGameView" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
