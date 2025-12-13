@@ -126,7 +126,6 @@ jobs:
         run: |
           echo "🔄 Akıllı context toplanıyor..."
           
-          # Kullanıcı dosya belirtmişse onları kullan
           USER_FILES="${{ github.event.inputs.context_files }}"
           if [ -n "$USER_FILES" ]; then
             echo "✅ Kullanıcı dosyaları kullanılıyor: $USER_FILES"
@@ -135,11 +134,9 @@ jobs:
             exit 0
           fi
           
-          # AKILLI DOSYA SEÇİMİ (GitHub Copilot stili)
           echo "🤖 Akıllı dosya seçimi yapılıyor..."
           SELECTED_FILES=""
           
-          # 1. Proje yapı dosyaları (Kritik)
           for file in "build.gradle" "build.gradle.kts" "settings.gradle" "package.json" "requirements.txt" "pyproject.toml" "Cargo.toml" "go.mod" "pom.xml"; do
             if [ -f "$file" ]; then
               SELECTED_FILES="$SELECTED_FILES,$file"
@@ -147,7 +144,6 @@ jobs:
             fi
           done
           
-          # 2. Manifest/Config dosyaları
           if [ -f "app/build.gradle" ]; then
             SELECTED_FILES="$SELECTED_FILES,app/build.gradle"
             echo "➕ app/build.gradle (manifest)"
@@ -157,7 +153,6 @@ jobs:
             echo "➕ AndroidManifest.xml"
           fi
           
-          # 3. README ve config
           if [ -f "README.md" ]; then
             SELECTED_FILES="$SELECTED_FILES,README.md"
             echo "➕ README.md"
@@ -167,7 +162,6 @@ jobs:
             echo "➕ .gitignore"
           fi
           
-          # 4. Ana kod dosyaları (max 3 tane)
           MAIN_FILES_COUNT=0
           for file in "app/src/main/java/com/"*".kt" "app/src/main/kotlin/"*".kt" "src/App.js" "src/App.tsx" "src/main.py" "main.rs" "main.go"; do
             if [ -f "$file" ] && [ $MAIN_FILES_COUNT -lt 3 ]; then
@@ -177,13 +171,11 @@ jobs:
             fi
           done
           
-          # 5. Boşsa default
           if [ -z "$SELECTED_FILES" ]; then
             SELECTED_FILES="README.md"
             echo "⚠️  Dosya bulunamadı, default kullanılıyor"
           fi
           
-          # Temizle ve max 8 dosya
           SELECTED_FILES=$(echo "$SELECTED_FILES" | sed 's/^,//' | cut -d',' -f1-8)
           echo "✅ Seçilen dosyalar: $SELECTED_FILES"
           echo "files=$SELECTED_FILES" >> $GITHUB_OUTPUT
@@ -341,7 +333,6 @@ jobs:
               write_output("error", msg)
               sys.exit(1)
 
-          # AKILLI DOSYA OKUMA (GitHub Copilot stili)
           repoContext = ""
           fileList = []
           
@@ -352,7 +343,6 @@ jobs:
                       path = Path(file_path)
                       if path.exists() and path.is_file():
                           content = path.read_text(encoding='utf-8')
-                          # Dosya boyutunu sınırla
                           if len(content) > 10000:
                               content = content[:10000] + "\n... [kesildi, devamı var]"
                           repoContext += f"\n=== {file_path} ===\n{content}\n"
@@ -363,7 +353,6 @@ jobs:
           
           print(f"Toplam {len(fileList)} dosya okundu (~{len(repoContext)} karakter)")
 
-          # INTERAKTİF SMART PROMPT
           systemPrompt = f"""Sen DeepSeek V3.2, akıllı ve interaktif bir kod asistanısın.
 
           ÇALIŞMA PRENSİBİN (GitHub Copilot gibi):
@@ -410,7 +399,7 @@ jobs:
 
           ŞİMDİ: Analiz et ve gerekiyorsa SOR, yoksa KOD YAZ:"""
 
-          def post_chat(api_base, api_key, model, messages, max_tokens=12000, temperature=0.7, timeout=60):
+          def post_chat(api_base, api_key, model, messages, max_tokens=8192, temperature=0.7, timeout=60):
               if "/v3.2_speciale" in api_base:
                   url = f"{api_base}/chat/completions"
               else:
@@ -460,7 +449,7 @@ jobs:
           for attempt in range(1, max_retries + 1):
               try:
                   resp = post_chat(api_base, api_key, MODEL, messages,
-                                   max_tokens=12000,
+                                   max_tokens=8192,
                                    temperature=0.5 if MODEL == 'deepseek-reasoner' else 0.7)
                   print("HTTP status:", resp.status_code)
                   if resp.status_code == 401:
@@ -499,7 +488,6 @@ jobs:
               write_output("error", str(last_exc))
               sys.exit(1)
 
-          # SORU VAR MI KONTROL ET (Interaktif mod)
           question_match = re.search(r'---QUESTION---\s*(.+?)\s*---END---', aiResponse, re.DOTALL)
           if question_match:
               question = question_match.group(1).strip()
@@ -507,11 +495,10 @@ jobs:
               write_output("has_question", "true")
               write_output("question", question)
               write_output("response", aiResponse)
-              write_output("success", "true")  # Başarılı ama soru var
+              write_output("success", "true")
           else:
               write_output("has_question", "false")
               
-              # DOSYA İŞLEMLERİ
               operations = []
               for m in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
                   dirPath = m.group(1).strip()
@@ -566,7 +553,6 @@ jobs:
           echo "---"
           echo "*Interaktif mod: AI öğreniyor, daha iyi kod yazıyor!*"
           
-          # Soruyu issue olarak aç (opsiyonel)
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.task }}" ]; then
             echo "## AI Sordu: ${{ github.event.inputs.task }}" > ai_question.md
             echo "" >> ai_question.md
@@ -703,7 +689,7 @@ jobs:
               report += question + '\n\n';
               report += '**📋 Sonraki Adımlar:**\n';
               report += '1. Bu soruyu yanıtla\n';
-              report += '2. Eksik dosyaları `context_files` alanına ekle\n';
+              report += '2. Eksik dosyaları \`context_files\` alanına ekle\n';
               report += '3. Workflow\'u yeniden çalıştır\n\n';
               report += '**💡 Örnek:**\n```yaml\ncontext_files: "' + contextFiles + ',ek_dosya.kt"\n```\n\n';
             } else if (operations && operations !== 'İşlem yapılmadı') {
