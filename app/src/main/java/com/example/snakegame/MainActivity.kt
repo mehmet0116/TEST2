@@ -1,166 +1,136 @@
 package com.example.snakegame
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.widget.Button
-import android.widget.TextView
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
-import com.example.snakegame.model.Direction
-import com.example.snakegame.model.GameState
+import com.example.snakegame.databinding.ActivityMainBinding
+import timber.log.Timber
 
 class MainActivity : AppCompatActivity() {
     
-    private lateinit var snakeGameView: SnakeGameView
-    private lateinit var tvScore: TextView
-    private lateinit var tvHighScore: TextView
-    private lateinit var btnStart: Button
-    private lateinit var btnPause: Button
-    private lateinit var btnRestart: Button
-    private lateinit var btnUp: Button
-    private lateinit var btnDown: Button
-    private lateinit var btnLeft: Button
-    private lateinit var btnRight: Button
-    
-    private val gameHandler = Handler(Looper.getMainLooper())
-    private val gameUpdateInterval = 150L // milliseconds
-    
-    private val gameUpdateRunnable = object : Runnable {
-        override fun run() {
-            snakeGameView.update()
-            updateUI()
-            gameHandler.postDelayed(this, gameUpdateInterval)
-        }
-    }
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var gameView: GameView
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
         
-        initializeViews()
-        setupClickListeners()
-        updateUI()
+        // ViewBinding kullanarak performans optimizasyonu
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        
+        // GameView'i başlat
+        gameView = GameView(this)
+        binding.gameContainer.addView(gameView)
+        
+        setupUI()
+        setupListeners()
+        
+        Timber.d("MainActivity created")
     }
     
-    private fun initializeViews() {
-        snakeGameView = findViewById(R.id.snakeGameView)
-        tvScore = findViewById(R.id.tvScore)
-        tvHighScore = findViewById(R.id.tvHighScore)
-        btnStart = findViewById(R.id.btnStart)
-        btnPause = findViewById(R.id.btnPause)
-        btnRestart = findViewById(R.id.btnRestart)
-        btnUp = findViewById(R.id.btnUp)
-        btnDown = findViewById(R.id.btnDown)
-        btnLeft = findViewById(R.id.btnLeft)
-        btnRight = findViewById(R.id.btnRight)
+    private fun setupUI() {
+        // UI elementlerini başlat
+        binding.scoreTextView.text = getString(R.string.score_format, 0)
+        binding.highScoreTextView.text = getString(R.string.high_score_format, 0)
     }
     
-    private fun setupClickListeners() {
-        btnStart.setOnClickListener {
-            when (snakeGameView.getGame().gameState) {
-                GameState.NOT_STARTED, GameState.GAME_OVER -> {
-                    snakeGameView.getGame().start()
-                    startGameLoop()
-                    updateButtonStates()
-                }
-                GameState.PAUSED -> {
-                    snakeGameView.getGame().resume()
-                    startGameLoop()
-                    updateButtonStates()
-                }
-                else -> {}
-            }
+    private fun setupListeners() {
+        binding.startButton.setOnClickListener {
+            startGame()
         }
         
-        btnPause.setOnClickListener {
-            if (snakeGameView.getGame().gameState == GameState.RUNNING) {
-                snakeGameView.getGame().pause()
-                stopGameLoop()
-                updateButtonStates()
-            }
+        binding.pauseButton.setOnClickListener {
+            pauseGame()
         }
         
-        btnRestart.setOnClickListener {
-            snakeGameView.getGame().restart()
-            startGameLoop()
-            updateButtonStates()
+        binding.restartButton.setOnClickListener {
+            restartGame()
         }
         
-        // Direction buttons
-        btnUp.setOnClickListener { snakeGameView.getGame().setDirection(Direction.UP) }
-        btnDown.setOnClickListener { snakeGameView.getGame().setDirection(Direction.DOWN) }
-        btnLeft.setOnClickListener { snakeGameView.getGame().setDirection(Direction.LEFT) }
-        btnRight.setOnClickListener { snakeGameView.getGame().setDirection(Direction.RIGHT) }
+        // Kontroller için dokunma alanları
+        setupTouchControls()
     }
     
-    private fun startGameLoop() {
-        stopGameLoop() // Ensure no duplicate loops
-        gameHandler.post(gameUpdateRunnable)
-    }
-    
-    private fun stopGameLoop() {
-        gameHandler.removeCallbacks(gameUpdateRunnable)
-    }
-    
-    private fun updateUI() {
-        val game = snakeGameView.getGame()
-        tvScore.text = getString(R.string.score, game.getScore())
-        tvHighScore.text = getString(R.string.high_score, game.getHighScore())
-        
-        // Update button states based on game state
-        updateButtonStates()
-        
-        // Force redraw
-        snakeGameView.invalidate()
-    }
-    
-    private fun updateButtonStates() {
-        val gameState = snakeGameView.getGame().gameState
-        
-        when (gameState) {
-            GameState.NOT_STARTED -> {
-                btnStart.text = getString(R.string.start_game)
-                btnStart.isEnabled = true
-                btnPause.isEnabled = false
-                btnRestart.isEnabled = false
-            }
-            GameState.RUNNING -> {
-                btnStart.text = getString(R.string.pause_game)
-                btnStart.isEnabled = false
-                btnPause.isEnabled = true
-                btnRestart.isEnabled = true
-            }
-            GameState.PAUSED -> {
-                btnStart.text = getString(R.string.resume_game)
-                btnStart.isEnabled = true
-                btnPause.isEnabled = false
-                btnRestart.isEnabled = true
-            }
-            GameState.GAME_OVER -> {
-                btnStart.text = getString(R.string.start_game)
-                btnStart.isEnabled = true
-                btnPause.isEnabled = false
-                btnRestart.isEnabled = true
-            }
+    private fun setupTouchControls() {
+        binding.upButton.setOnClickListener {
+            gameView.changeDirection(Direction.UP)
         }
+        
+        binding.downButton.setOnClickListener {
+            gameView.changeDirection(Direction.DOWN)
+        }
+        
+        binding.leftButton.setOnClickListener {
+            gameView.changeDirection(Direction.LEFT)
+        }
+        
+        binding.rightButton.setOnClickListener {
+            gameView.changeDirection(Direction.RIGHT)
+        }
+    }
+    
+    private fun startGame() {
+        gameView.startGame()
+        binding.startButton.visibility = View.GONE
+        binding.pauseButton.visibility = View.VISIBLE
+        binding.gameStatusTextView.text = getString(R.string.game_running)
+        Timber.d("Game started")
+    }
+    
+    private fun pauseGame() {
+        if (gameView.isGameRunning()) {
+            gameView.pauseGame()
+            binding.pauseButton.text = getString(R.string.resume)
+            binding.gameStatusTextView.text = getString(R.string.game_paused)
+            Timber.d("Game paused")
+        } else {
+            gameView.resumeGame()
+            binding.pauseButton.text = getString(R.string.pause)
+            binding.gameStatusTextView.text = getString(R.string.game_running)
+            Timber.d("Game resumed")
+        }
+    }
+    
+    private fun restartGame() {
+        gameView.restartGame()
+        binding.startButton.visibility = View.VISIBLE
+        binding.pauseButton.visibility = View.GONE
+        binding.pauseButton.text = getString(R.string.pause)
+        binding.gameStatusTextView.text = getString(R.string.game_ready)
+        updateScore(0)
+        Timber.d("Game restarted")
+    }
+    
+    fun updateScore(score: Int) {
+        binding.scoreTextView.text = getString(R.string.score_format, score)
+    }
+    
+    fun updateHighScore(highScore: Int) {
+        binding.highScoreTextView.text = getString(R.string.high_score_format, highScore)
+    }
+    
+    fun gameOver() {
+        binding.startButton.visibility = View.VISIBLE
+        binding.pauseButton.visibility = View.GONE
+        binding.gameStatusTextView.text = getString(R.string.game_over)
+        Timber.d("Game over")
     }
     
     override fun onPause() {
         super.onPause()
-        snakeGameView.getGame().pause()
-        stopGameLoop()
+        gameView.pauseGame()
     }
     
     override fun onResume() {
         super.onResume()
-        if (snakeGameView.getGame().gameState == GameState.RUNNING) {
-            startGameLoop()
+        if (gameView.isGameRunning()) {
+            gameView.resumeGame()
         }
-        updateUI()
     }
     
     override fun onDestroy() {
         super.onDestroy()
-        stopGameLoop()
+        gameView.releaseResources()
+        Timber.d("MainActivity destroyed")
     }
 }

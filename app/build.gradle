@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'kotlin-kapt'
 }
 
 android {
@@ -15,12 +16,30 @@ android {
         versionName "1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        
+        // BuildConfig fields
+        buildConfigField "boolean", "ENABLE_LOGGING", "true"
     }
 
     buildTypes {
-        release {
+        debug {
             minifyEnabled false
+            debuggable true
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-DEBUG"
+            
+            buildConfigField "boolean", "ENABLE_LOGGING", "true"
+        }
+        
+        release {
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            buildConfigField "boolean", "ENABLE_LOGGING", "false"
+            
+            // Release signing config (configure in local.properties)
+            signingConfig signingConfigs.debug
         }
     }
     
@@ -35,6 +54,12 @@ android {
     
     buildFeatures {
         viewBinding true
+        buildConfig true
+    }
+    
+    // Enable data binding for potential future use
+    dataBinding {
+        enabled = true
     }
 }
 
@@ -43,6 +68,14 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
+    
+    // Timber for logging
+    implementation 'com.jakewharton.timber:timber:5.0.1'
+    
+    // Coroutines for async operations
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
     
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'

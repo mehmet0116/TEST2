@@ -1,18 +1,25 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Snake Game</string>
-    <string name="start_game">Start Game</string>
-    <string name="pause_game">Pause</string>
-    <string name="resume_game">Resume</string>
-    <string name="restart_game">Restart</string>
-    <string name="game_over">Game Over!</string>
-    <string name="score">Score: %d</string>
-    <string name="high_score">High Score: %d</string>
+    
+    <!-- Game Strings -->
+    <string name="start">Start Game</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="restart">Restart</string>
+    
+    <!-- Status Strings -->
+    <string name="game_ready">Ready to Play!</string>
+    <string name="game_running">Game Running</string>
     <string name="game_paused">Game Paused</string>
-    <string name="tap_to_continue">Tap to continue</string>
-    <string name="game_instructions">Use arrow buttons or swipe to control the snake</string>
-    <string name="up">↑</string>
-    <string name="down">↓</string>
-    <string name="left">←</string>
-    <string name="right">→</string>
+    <string name="game_over">Game Over!</string>
+    
+    <!-- Score Strings -->
+    <string name="score_format">Score: %d</string>
+    <string name="high_score_format">High Score: %d</string>
+    
+    <!-- Direction Strings -->
+    <string name="up">Up</string>
+    <string name="down">Down</string>
+    <string name="left">Left</string>
+    <string name="right">Right</string>
 </resources>
