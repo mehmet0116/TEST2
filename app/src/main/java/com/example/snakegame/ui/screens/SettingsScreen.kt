@@ -1,355 +1,287 @@
 package com.example.snakegame.ui.screens
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.snakegame.R
-import com.example.snakegame.ui.theme.SnakeGameTheme
-import com.example.snakegame.ui.theme.SnakeGreen
-import com.example.snakegame.ui.theme.Typography
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.snakegame.viewmodel.SettingsViewModel
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBackClicked: () -> Unit
 ) {
-    var soundEnabled by remember { mutableStateOf(true) }
-    var vibrationEnabled by remember { mutableStateOf(true) }
-    var gameSpeed by remember { mutableStateOf(150f) }
-    var gridVisible by remember { mutableStateOf(true) }
-    
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Image(
-            painter = painterResource(id = R.drawable.ic_settings),
-            contentDescription = "Settings Background",
-            modifier = Modifier.fillMaxSize(),
-            alpha = 0.1f
-        )
-        
+    val viewModel: SettingsViewModel = viewModel()
+    val scope = rememberCoroutineScope()
+
+    // Ayarları topla
+    val isDarkMode by viewModel.isDarkMode.collectAsState(initial = false)
+    val isSoundEnabled by viewModel.isSoundEnabled.collectAsState(initial = true)
+    val isVibrationEnabled by viewModel.isVibrationEnabled.collectAsState(initial = true)
+    val gameSpeed by viewModel.gameSpeed.collectAsState(initial = 150f)
+    val isGridVisible by viewModel.isGridVisible.collectAsState(initial = true)
+
+    var showResetDialog by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Ayarlar") },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(Icons.Default.ArrowBack, "Geri")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(padding)
                 .verticalScroll(rememberScrollState())
-        ) {
-            // Başlık ve geri butonu
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                IconButton(onClick = onBackClicked) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_back),
-                        contentDescription = "Geri",
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-                
-                Text(
-                    text = "AYARLAR",
-                    style = Typography.displayLarge,
-                    color = SnakeGreen,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f)
-                )
-                
-                Spacer(modifier = Modifier.size(32.dp)) // Simetri için boşluk
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Ayarlar kartları
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Ses Ayarları
-                SettingsCard(
-                    title = "SES AYARLARI",
-                    iconId = R.drawable.ic_sound
-                ) {
-                    SettingsSwitch(
-                        text = "Ses Efektleri",
-                        isChecked = soundEnabled,
-                        onCheckedChange = { soundEnabled = it }
-                    )
-                }
-                
-                // Görsel Ayarlar
-                SettingsCard(
-                    title = "GÖRSEL AYARLAR",
-                    iconId = R.drawable.ic_visual
-                ) {
-                    SettingsSwitch(
-                        text = "Izgara Görünürlüğü",
-                        isChecked = gridVisible,
-                        onCheckedChange = { gridVisible = it }
-                    )
-                }
-                
-                // Oyun Ayarları
-                SettingsCard(
-                    title = "OYUN AYARLARI",
-                    iconId = R.drawable.ic_game
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        SettingsSwitch(
-                            text = "Titreşim",
-                            isChecked = vibrationEnabled,
-                            onCheckedChange = { vibrationEnabled = it }
-                        )
-                        
-                        SettingsSlider(
-                            text = "Oyun Hızı",
-                            value = gameSpeed,
-                            onValueChange = { gameSpeed = it },
-                            valueRange = 50f..300f,
-                            showValueAsText = true,
-                            valueSuffix = "ms"
-                        )
-                    }
-                }
-                
-                // Hakkında
-                SettingsCard(
-                    title = "HAKKINDA",
-                    iconId = R.drawable.ic_info
-                ) {
-                    Column(
-                        modifier = Modifier.padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Yılan Oyunu v1.0",
-                            style = Typography.bodyLarge,
-                            color = Color.DarkGray
-                        )
-                        Text(
-                            text = "Klasik yılan oyununun modern bir uygulaması",
-                            style = Typography.bodyLarge,
-                            color = Color.Gray
-                        )
-                        Text(
-                            text = "© 2024 Tüm hakları saklıdır",
-                            style = Typography.bodyLarge,
-                            color = Color.LightGray
-                        )
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            // Sıfırlama butonu
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.LightGray.copy(alpha = 0.3f)
-                ),
-                onClick = {
-                    // Ayarları varsayılana sıfırla
-                    soundEnabled = true
-                    vibrationEnabled = true
-                    gameSpeed = 150f
-                    gridVisible = true
-                }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_reset),
-                        contentDescription = "Sıfırla",
-                        tint = Color.Gray
-                    )
-                    
-                    Spacer(modifier = Modifier.size(8.dp))
-                    
-                    Text(
-                        text = "AYARLARI SIFIRLA",
-                        style = Typography.titleLarge,
-                        color = Color.Gray
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(32.dp))
-        }
-    }
-}
-
-@Composable
-fun SettingsCard(
-    title: String,
-    iconId: Int? = null,
-    content: @Composable () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Kart başlığı
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 16.dp)
-            ) {
-                iconId?.let {
-                    Icon(
-                        painter = painterResource(id = it),
-                        contentDescription = title,
-                        tint = SnakeGreen,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                }
-                
-                Text(
-                    text = title,
-                    style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = SnakeGreen
+
+            // TEMA AYARLARI
+            SettingsSection(title = "🎨 TEMA") {
+                SettingsSwitch(
+                    title = "Karanlık Mod",
+                    description = if (isDarkMode) "Karanlık tema aktif" else "Açık tema aktif",
+                    checked = isDarkMode,
+                    icon = if (isDarkMode) Icons.Default.Star else Icons.Default.Star,
+                    onCheckedChange = {
+                        scope.launch {
+                            viewModel.setDarkMode(it)
+                        }
+                    }
                 )
             }
-            
-            // İçerik
-            content()
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // OYUN AYARLARI
+            SettingsSection(title = "🎮 OYUN AYARLARI") {
+
+                // Oyun Hızı
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Oyun Hızı",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = getSpeedLabel(gameSpeed),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Slider(
+                        value = gameSpeed,
+                        onValueChange = {
+                            scope.launch {
+                                viewModel.setGameSpeed(it)
+                            }
+                        },
+                        valueRange = 50f..300f,
+                        steps = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
+
+                // Grid Görünürlüğü
+                SettingsSwitch(
+                    title = "Grid Çizgileri",
+                    description = if (isGridVisible) "Grid çizgileri gösteriliyor" else "Grid çizgileri gizli",
+                    checked = isGridVisible,
+                    icon = Icons.Default.Check,
+                    onCheckedChange = {
+                        scope.launch {
+                            viewModel.setGridVisible(it)
+                        }
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // SES VE TİTREŞİM
+            SettingsSection(title = "🔊 SES VE TİTREŞİM") {
+                SettingsSwitch(
+                    title = "Ses Efektleri",
+                    description = if (isSoundEnabled) "Sesler açık" else "Sesler kapalı",
+                    checked = isSoundEnabled,
+                    icon = if (isSoundEnabled) Icons.Default.Check else Icons.Default.Close,
+                    onCheckedChange = {
+                        scope.launch {
+                            viewModel.setSoundEnabled(it)
+                        }
+                    }
+                )
+
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
+
+                SettingsSwitch(
+                    title = "Titreşim",
+                    description = if (isVibrationEnabled) "Titreşim açık" else "Titreşim kapalı",
+                    checked = isVibrationEnabled,
+                    icon = Icons.Default.Phone,
+                    onCheckedChange = {
+                        scope.launch {
+                            viewModel.setVibrationEnabled(it)
+                        }
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // SIFIRLA BUTONU
+            OutlinedButton(
+                onClick = { showResetDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Ayarları Sıfırla")
+            }
+        }
+    }
+
+    // Sıfırlama Onay Dialogu
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Ayarları Sıfırla") },
+            text = { Text("Tüm ayarlar varsayılan değerlerine döndürülecek. Emin misiniz?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            viewModel.resetSettings()
+                        }
+                        showResetDialog = false
+                    }
+                ) {
+                    Text("Sıfırla", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) {
+                    Text("İptal")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                content()
+            }
         }
     }
 }
 
 @Composable
-fun SettingsSwitch(
-    text: String,
-    isChecked: Boolean,
+private fun SettingsSwitch(
+    title: String,
+    description: String,
+    checked: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .toggleable(
-                value = isChecked,
-                onValueChange = onCheckedChange,
-                role = Role.Switch
-            )
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = text,
-            style = Typography.bodyLarge,
-            color = Color.DarkGray
-        )
-        
-        Switch(
-            checked = isChecked,
-            onCheckedChange = null // null because we handle it in the row's toggleable
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SettingsSlider(
-    text: String,
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    valueRange: ClosedFloatingPointRange<Float> = 0f..100f,
-    showValueAsText: Boolean = false,
-    valueSuffix: String = ""
-) {
-    Column {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = text,
-                style = Typography.bodyLarge,
-                color = Color.DarkGray
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
             )
-            
-            if (showValueAsText) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
                 Text(
-                    text = "${value.toInt()}$valueSuffix",
-                    style = Typography.bodyLarge,
-                    color = SnakeGreen,
-                    fontWeight = FontWeight.Bold
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            modifier = Modifier.fillMaxWidth()
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
         )
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun SettingsScreenPreview() {
-    SnakeGameTheme {
-        SettingsScreen(onBackClicked = {})
+private fun getSpeedLabel(speed: Float): String {
+    return when {
+        speed < 100f -> "⚡ Çok Hızlı"
+        speed < 150f -> "🚀 Hızlı"
+        speed < 200f -> "🎯 Normal"
+        speed < 250f -> "🐌 Yavaş"
+        else -> "🐢 Çok Yavaş"
     }
 }

@@ -106,7 +106,7 @@ class GameView @JvmOverloads constructor(
         canvas.drawCircle(
             foodLeft + cellSize / 2,
             foodTop + cellSize / 2,
-            cellSize / 2 - 4,
+            cellSize / 2f - 4f,
             foodPaint
         )
     }

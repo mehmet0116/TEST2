@@ -1,30 +1,24 @@
 package com.example.snakegame.ui.screens
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.snakegame.R
+import androidx.compose.ui.unit.sp
 import com.example.snakegame.ui.theme.SnakeGameTheme
-import com.example.snakegame.ui.theme.SnakeGreen
-import com.example.snakegame.ui.theme.Typography
 
 @Composable
 fun MainMenuScreen(
@@ -33,18 +27,31 @@ fun MainMenuScreen(
     onSettingsClicked: () -> Unit,
     onExitClicked: () -> Unit
 ) {
+    // Animasyon için scale
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
-        // Arka plan deseni (basit bir çizim)
-        Image(
-            painter = painterResource(id = R.drawable.ic_snake_pattern),
-            contentDescription = "Snake Pattern Background",
-            modifier = Modifier.fillMaxSize(),
-            alpha = 0.1f
-        )
-        
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -52,81 +59,137 @@ fun MainMenuScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Başlık
+
+            // Logo/Başlık
             Text(
-                text = "YILAN OYUNU",
-                style = Typography.displayLarge,
-                color = SnakeGreen,
+                text = "🐍 YILAN OYUNU",
+                style = MaterialTheme.typography.displayLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 42.sp,
+                    letterSpacing = 2.sp
+                ),
+                color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(bottom = 40.dp)
-            )
-            
-            // Yılan ikonu
-            Image(
-                painter = painterResource(id = R.drawable.ic_snake_head),
-                contentDescription = "Snake Icon",
                 modifier = Modifier
-                    .size(120.dp)
-                    .padding(bottom = 40.dp)
+                    .scale(scale)
+                    .padding(bottom = 8.dp)
             )
-            
-            // Oyna Butonu
+
+            Text(
+                text = "Klasik Yılan Oyunu",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                modifier = Modifier.padding(bottom = 48.dp)
+            )
+
+            // Oyun Başlat Butonu (Vurgulu)
             MenuButton(
-                text = "OYNA",
+                text = "OYUNA BAŞLA",
+                icon = Icons.Default.PlayArrow,
                 onClick = onPlayClicked,
-                modifier = Modifier.fillMaxWidth()
+                isPrimary = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
             )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Skor Tablosu Butonu
+
+            // Skor Tablosu
             MenuButton(
                 text = "SKOR TABLOSU",
+                icon = Icons.Default.Star,
                 onClick = onScoreboardClicked,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
             )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Ayarlar Butonu
+
+            // Ayarlar
             MenuButton(
                 text = "AYARLAR",
+                icon = Icons.Default.Settings,
                 onClick = onSettingsClicked,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
             )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Çıkış Butonu
-            Button(
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Çıkış
+            TextButton(
                 onClick = onExitClicked,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.LightGray,
-                    contentColor = Color.DarkGray
-                )
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(text = "ÇIKIŞ", style = Typography.titleLarge)
+                Icon(
+                    imageVector = Icons.Default.ExitToApp,
+                    contentDescription = "Çıkış",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "ÇIKIŞ",
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Versiyon bilgisi
+            Text(
+                text = "v1.0.0 • 2025",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+            )
         }
     }
 }
 
 @Composable
-fun MenuButton(
+private fun MenuButton(
     text: String,
+    icon: ImageVector,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isPrimary: Boolean = false
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.height(60.dp),
+        modifier = modifier.height(64.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = SnakeGreen,
-            contentColor = Color.White
+            containerColor = if (isPrimary)
+                MaterialTheme.colorScheme.primary
+            else
+                MaterialTheme.colorScheme.primaryContainer,
+            contentColor = if (isPrimary)
+                MaterialTheme.colorScheme.onPrimary
+            else
+                MaterialTheme.colorScheme.onPrimaryContainer
+        ),
+        shape = RoundedCornerShape(16.dp),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = if (isPrimary) 8.dp else 4.dp,
+            pressedElevation = 12.dp
         )
     ) {
-        Text(text = text, style = Typography.titleLarge)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.SemiBold,
+                    fontSize = if (isPrimary) 18.sp else 16.sp
+                )
+            )
+        }
     }
 }
 
@@ -142,3 +205,17 @@ fun MainMenuScreenPreview() {
         )
     }
 }
+
+@Preview(showBackground = true)
+@Composable
+fun MainMenuScreenDarkPreview() {
+    SnakeGameTheme(darkTheme = true) {
+        MainMenuScreen(
+            onPlayClicked = {},
+            onScoreboardClicked = {},
+            onSettingsClicked = {},
+            onExitClicked = {}
+        )
+    }
+}
+
