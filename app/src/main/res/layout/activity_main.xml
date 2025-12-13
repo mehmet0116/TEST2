@@ -4,158 +4,215 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/game_background"
+    android:background="@color/black"
     tools:context=".MainActivity">
 
-    <TextView
-        android:id="@+id/tvScore"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/score"
-        android:textColor="@color/score_text"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <TextView
-        android:id="@+id/tvHighScore"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/high_score"
-        android:textColor="@color/score_text"
-        android:textSize="18sp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvScore" />
-
-    <com.example.snakegame.SnakeGameView
-        android:id="@+id/snakeGameView"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_margin="16dp"
-        app:layout_constraintBottom_toTopOf="@+id/controlButtons"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvHighScore" />
-
+    <!-- Header Section -->
     <LinearLayout
-        android:id="@+id/controlButtons"
-        android:layout_width="0dp"
+        android:id="@+id/headerLayout"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:gravity="center"
         android:orientation="horizontal"
-        android:padding="8dp"
-        app:layout_constraintBottom_toTopOf="@+id/directionButtons"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
+        android:padding="16dp"
+        android:background="@color/purple_700"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
-        <Button
-            android:id="@+id/btnStart"
+        <TextView
+            android:id="@+id/scoreTextView"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_margin="8dp"
             android:layout_weight="1"
-            android:background="@color/button_background"
-            android:text="@string/start_game"
-            android:textColor="@color/button_text"
-            android:textSize="16sp" />
+            android:text="@string/score_format"
+            android:textColor="@color/white"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnPause"
+        <TextView
+            android:id="@+id/highScoreTextView"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_margin="8dp"
             android:layout_weight="1"
-            android:background="@color/button_background"
-            android:text="@string/pause_game"
-            android:textColor="@color/button_text"
-            android:textSize="16sp" />
+            android:text="@string/high_score_format"
+            android:textColor="@color/yellow"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:gravity="end" />
 
-        <Button
-            android:id="@+id/btnRestart"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_margin="8dp"
-            android:layout_weight="1"
-            android:background="@color/button_background"
-            android:text="@string/restart_game"
-            android:textColor="@color/button_text"
-            android:textSize="16sp" />
     </LinearLayout>
 
-    <LinearLayout
-        android:id="@+id/directionButtons"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="32dp"
-        android:gravity="center"
-        android:orientation="vertical"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
-
-        <Button
-            android:id="@+id/btnUp"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_margin="4dp"
-            android:background="@color/button_background"
-            android:text="@string/up"
-            android:textColor="@color/button_text"
-            android:textSize="24sp" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/btnLeft"
-                android:layout_width="60dp"
-                android:layout_height="60dp"
-                android:layout_margin="4dp"
-                android:background="@color/button_background"
-                android:text="@string/left"
-                android:textColor="@color/button_text"
-                android:textSize="24sp" />
-
-            <Button
-                android:id="@+id/btnRight"
-                android:layout_width="60dp"
-                android:layout_height="60dp"
-                android:layout_margin="4dp"
-                android:background="@color/button_background"
-                android:text="@string/right"
-                android:textColor="@color/button_text"
-                android:textSize="24sp" />
-        </LinearLayout>
-
-        <Button
-            android:id="@+id/btnDown"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_margin="4dp"
-            android:background="@color/button_background"
-            android:text="@string/down"
-            android:textColor="@color/button_text"
-            android:textSize="24sp" />
-    </LinearLayout>
-
+    <!-- Game Status -->
     <TextView
-        android:id="@+id/tvInstructions"
+        android:id="@+id/gameStatusTextView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:text="@string/game_instructions"
-        android:textColor="@color/score_text"
-        android:textSize="14sp"
+        android:text="@string/game_ready"
+        android:textColor="@color/white"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:padding="8dp"
+        app:layout_constraintTop_toBottomOf="@id/headerLayout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Game Container -->
+    <FrameLayout
+        android:id="@+id/gameContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:background="@color/black"
+        app:layout_constraintTop_toBottomOf="@id/gameStatusTextView"
+        app:layout_constraintBottom_toTopOf="@id/controlLayout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Control Buttons -->
+    <LinearLayout
+        android:id="@+id/controlLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:background="@color/purple_900"
+        app:layout_constraintBottom_toTopOf="@id/directionLayout"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <Button
+            android:id="@+id/startButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/start"
+            android:backgroundTint="@color/green"
+            android:textColor="@color/white"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/pauseButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/pause"
+            android:backgroundTint="@color/orange"
+            android:textColor="@color/white"
+            android:layout_marginStart="8dp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/restartButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/restart"
+            android:backgroundTint="@color/blue"
+            android:textColor="@color/white"
+            android:layout_marginStart="8dp" />
+
+    </LinearLayout>
+
+    <!-- Direction Controls -->
+    <GridLayout
+        android:id="@+id/directionLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:columnCount="3"
+        android:rowCount="3"
+        android:padding="16dp"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Empty top-left -->
+        <View
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_column="0"
+            android:layout_row="0" />
+
+        <!-- Up Button -->
+        <Button
+            android:id="@+id/upButton"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="↑"
+            android:textSize="24sp"
+            android:backgroundTint="@color/teal_700"
+            android:textColor="@color/white"
+            android:layout_column="1"
+            android:layout_row="0"
+            android:layout_margin="4dp" />
+
+        <!-- Empty top-right -->
+        <View
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_column="2"
+            android:layout_row="0" />
+
+        <!-- Left Button -->
+        <Button
+            android:id="@+id/leftButton"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="←"
+            android:textSize="24sp"
+            android:backgroundTint="@color/teal_700"
+            android:textColor="@color/white"
+            android:layout_column="0"
+            android:layout_row="1"
+            android:layout_margin="4dp" />
+
+        <!-- Center (can be used for special actions) -->
+        <View
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:background="@drawable/circle_background"
+            android:layout_column="1"
+            android:layout_row="1"
+            android:layout_margin="4dp" />
+
+        <!-- Right Button -->
+        <Button
+            android:id="@+id/rightButton"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="→"
+            android:textSize="24sp"
+            android:backgroundTint="@color/teal_700"
+            android:textColor="@color/white"
+            android:layout_column="2"
+            android:layout_row="1"
+            android:layout_margin="4dp" />
+
+        <!-- Empty bottom-left -->
+        <View
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_column="0"
+            android:layout_row="2" />
+
+        <!-- Down Button -->
+        <Button
+            android:id="@+id/downButton"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:text="↓"
+            android:textSize="24sp"
+            android:backgroundTint="@color/teal_700"
+            android:textColor="@color/white"
+            android:layout_column="1"
+            android:layout_row="2"
+            android:layout_margin="4dp" />
+
+        <!-- Empty bottom-right -->
+        <View
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_column="2"
+            android:layout_row="2" />
+
+    </GridLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

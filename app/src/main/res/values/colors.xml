@@ -12,26 +12,12 @@
     <color name="snake_color">#FFEB3B</color>
     <color name="food_color">#F44336</color>
     <color name="grid_line">#81C784</color>
-    <color name="grid_color">#81C784</color>
-    <color name="background_color">#2E7D32</color>
     <color name="score_text">#FFFFFF</color>
     <color name="button_background">#388E3C</color>
     <color name="button_text">#FFFFFF</color>
     
-    <!-- Theme colors (Açık tema için) -->
-    <color name="background_beige">#FFF5E6D3</color>
-    <color name="snake_green">#FF4CAF50</color>
-    <color name="food_red">#FFF44336</color>
-    <color name="text_color">#FF000000</color>
-
     <!-- UI colors -->
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
     <color name="gray">#9E9E9E</color>
-
-    <!-- Material Design colors -->
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
 </resources>
