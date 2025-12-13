@@ -1,22 +1,10 @@
 <resources>
-    <string name="app_name">Yılan Oyunu</string>
-    <string name="play">Oyna</string>
-    <string name="scoreboard">Skor Tablosu</string>
-    <string name="settings">Ayarlar</string>
-    <string name="exit">Çıkış</string>
-    <string name="score">Skor</string>
-    <string name="high_score">En Yüksek Skor</string>
-    <string name="game_over">Oyun Bitti</string>
-    <string name="play_again">Tekrar Oyna</string>
-    <string name="main_menu">Ana Menü</string>
-    <string name="paused">Duraklatıldı</string>
-    <string name="continue_game">Devam Et</string>
-    <string name="sound_effects">Ses Efektleri</string>
-    <string name="vibration">Titreşim</string>
-    <string name="game_speed">Oyun Hızı</string>
-    <string name="grid_visibility">Izgara Görünürlüğü</string>
-    <string name="reset_settings">Ayarları Sıfırla</string>
-    <string name="about">Hakkında</string>
-    <string name="recent_scores">Son Skorlar</string>
-    <string name="no_scores_yet">Henüz skor kaydedilmedi.\nOyun oynayarak skorunuzu kaydedin!</string>
+    <string name="app_name">Snake Game</string>
+    <string name="score">Score: %d</string>
+    <string name="high_score">High Score: %d</string>
+    <string name="game_over">Game Over!</string>
+    <string name="restart">Restart</string>
+    <string name="pause">Pause</string>
+    <string name="resume">Resume</string>
+    <string name="start_game">Start Game</string>
 </resources>

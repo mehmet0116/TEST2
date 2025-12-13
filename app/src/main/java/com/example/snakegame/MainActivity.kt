@@ -1,96 +1,147 @@
 package com.example.snakegame
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.example.snakegame.ui.screens.GameOverScreen
-import com.example.snakegame.ui.screens.GameScreen
-import com.example.snakegame.ui.screens.MainMenuScreen
-import com.example.snakegame.ui.screens.ScoreboardScreen
-import com.example.snakegame.ui.screens.SettingsScreen
-import com.example.snakegame.ui.theme.SnakeGameTheme
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
+import android.view.View
+import android.widget.Button
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import com.example.snakegame.databinding.ActivityMainBinding
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
+    
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var gameView: GameView
+    private lateinit var scoreTextView: TextView
+    private lateinit var highScoreTextView: TextView
+    private lateinit var startButton: Button
+    private lateinit var pauseButton: Button
+    private lateinit var restartButton: Button
+    
+    private var gameHandler = Handler(Looper.getMainLooper())
+    private var isGameRunning = false
+    private var isPaused = false
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            SnakeGameTheme {
-                // Uygulamanın ana yüzeyi
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    SnakeApp()
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        
+        initializeViews()
+        setupClickListeners()
+    }
+    
+    private fun initializeViews() {
+        gameView = binding.gameView
+        scoreTextView = binding.scoreTextView
+        highScoreTextView = binding.highScoreTextView
+        startButton = binding.startButton
+        pauseButton = binding.pauseButton
+        restartButton = binding.restartButton
+        
+        updateScoreDisplay()
+    }
+    
+    private fun setupClickListeners() {
+        startButton.setOnClickListener {
+            if (!isGameRunning) {
+                startGame()
+            }
+        }
+        
+        pauseButton.setOnClickListener {
+            if (isGameRunning) {
+                if (isPaused) {
+                    resumeGame()
+                } else {
+                    pauseGame()
                 }
             }
         }
+        
+        restartButton.setOnClickListener {
+            restartGame()
+        }
     }
-}
-
-@Composable
-fun SnakeApp() {
-    val navController = rememberNavController()
     
-    NavHost(
-        navController = navController,
-        startDestination = "main_menu"
-    ) {
-        composable("main_menu") {
-            MainMenuScreen(
-                onPlayClicked = { navController.navigate("game") },
-                onScoreboardClicked = { navController.navigate("scoreboard") },
-                onSettingsClicked = { navController.navigate("settings") },
-                onExitClicked = { /* Uygulamadan çıkış - gerçek uygulamada finish() kullanılabilir */ }
-            )
-        }
-        composable("game") {
-            GameScreen(
-                onGameOver = { score ->
-                    navController.navigate("game_over/$score") {
-                        popUpTo("game") { inclusive = true }
+    private fun startGame() {
+        isGameRunning = true
+        isPaused = false
+        gameView.resetGame()
+        startButton.visibility = View.GONE
+        pauseButton.visibility = View.VISIBLE
+        restartButton.visibility = View.VISIBLE
+        pauseButton.text = getString(R.string.pause)
+        
+        gameHandler.post(object : Runnable {
+            override fun run() {
+                if (isGameRunning && !isPaused) {
+                    gameView.update()
+                    updateScoreDisplay()
+                    
+                    if (gameView.isGameOver()) {
+                        gameOver()
+                    } else {
+                        gameHandler.postDelayed(this, 150) // Game speed
                     }
-                },
-                onBackToMenu = { navController.navigate("main_menu") }
-            )
+                }
+            }
+        })
+    }
+    
+    private fun pauseGame() {
+        isPaused = true
+        pauseButton.text = getString(R.string.resume)
+    }
+    
+    private fun resumeGame() {
+        isPaused = false
+        pauseButton.text = getString(R.string.pause)
+        gameHandler.post { startGame() }
+    }
+    
+    private fun restartGame() {
+        gameHandler.removeCallbacksAndMessages(null)
+        isGameRunning = false
+        isPaused = false
+        gameView.resetGame()
+        updateScoreDisplay()
+        startButton.visibility = View.VISIBLE
+        pauseButton.visibility = View.GONE
+        restartButton.visibility = View.GONE
+    }
+    
+    private fun gameOver() {
+        isGameRunning = false
+        pauseButton.visibility = View.GONE
+        restartButton.visibility = View.VISIBLE
+        startButton.visibility = View.VISIBLE
+        startButton.text = getString(R.string.start_game)
+    }
+    
+    private fun updateScoreDisplay() {
+        scoreTextView.text = getString(R.string.score, gameView.getScore())
+        highScoreTextView.text = getString(R.string.high_score, gameView.getHighScore())
+    }
+    
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isGameRunning && !isPaused) {
+            gameView.handleSwipe(event)
         }
-        composable("game_over/{score}") { backStackEntry ->
-            val score = backStackEntry.arguments?.getString("score")?.toIntOrNull() ?: 0
-            GameOverScreen(
-                score = score,
-                onPlayAgain = {
-                    navController.navigate("game") {
-                        popUpTo("game_over") { inclusive = true }
-                    }
-                },
-                onBackToMenu = { navController.navigate("main_menu") }
-            )
-        }
-        composable("scoreboard") {
-            ScoreboardScreen(
-                onBackClicked = { navController.navigate("main_menu") }
-            )
-        }
-        composable("settings") {
-            SettingsScreen(
-                onBackClicked = { navController.navigate("main_menu") }
-            )
+        return super.onTouchEvent(event)
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        if (isGameRunning && !isPaused) {
+            pauseGame()
         }
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun SnakeAppPreview() {
-    SnakeGameTheme {
-        SnakeApp()
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        gameHandler.removeCallbacksAndMessages(null)
     }
 }
