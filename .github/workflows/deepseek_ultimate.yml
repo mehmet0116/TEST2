@@ -100,9 +100,9 @@ jobs:
             console.log('Tespit Edilen Tip: ' + projectType);
             console.log('Detaylar: ' + (projectDetails.join(', ') || 'Genel Proje'));
             core.setOutput('type', projectType);
-            core.setOutput('details', projectDetails.join(', ') || 'Genel Proje')
+            core.setOutput('details', projectDetails.join(', ') || 'Genel Proje');
 
-      - name: Model Seçimi (GÜNCELLENDİ: deepseek-coder eklendi)
+      - name: "Model Seçimi (GÜNCELLENDİ: deepseek-coder eklendi)"
         id: model_selector
         run: |
           TASK="${{ github.event.inputs.task }}"
@@ -129,7 +129,7 @@ jobs:
             echo "complexity=low" >> $GITHUB_OUTPUT
           fi
 
-      - name: Akıllı Context Toplayıcı (GÜNCELLENDİ: Dosya sınırı gevşetildi)
+      - name: "Akıllı Context Toplayıcı (GÜNCELLENDİ: Dosya sınırı gevşetildi)"
         id: context
         run: |
           echo "🔄 Akıllı context toplanıyor..."
@@ -275,7 +275,7 @@ jobs:
           pip install --upgrade pip
           pip install requests
 
-      - name: Validate DEEPSEEK_API_KEY (GÜNCELLENDİ: deepseek-coder kontrolü)
+      - name: "Validate DEEPSEEK_API_KEY (GÜNCELLENDİ: deepseek-coder kontrolü)"
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           BASE_URL: ${{ steps.model_selector.outputs.base_url }}
@@ -328,7 +328,7 @@ jobs:
           print("DEEPSEEK API anahtar doğrulaması ve model kontrolü tamamlandı.")
           PY
 
-      - name: DeepSeek Smart Interactive Engine (GÜNCELLENDİ: Web search entegrasyonu)
+      - name: "DeepSeek Smart Interactive Engine (GÜNCELLENDİ: Web search entegrasyonu)"
         id: deepseek
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
