@@ -2,339 +2,239 @@ package com.example.snakegame
 
 import android.content.Context
 import android.graphics.*
-import android.os.Handler
-import android.os.Looper
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import android.view.View.OnTouchListener
-import java.util.*
+import com.example.snakegame.model.Direction
+import com.example.snakegame.model.Game
+import com.example.snakegame.model.GameState
 import kotlin.math.abs
 
 class SnakeGameView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : View(context, attrs, defStyleAttr), OnTouchListener {
+) : View(context, attrs, defStyleAttr) {
     
-    companion object {
-        private const val GRID_SIZE = 20
-        private const val INITIAL_SNAKE_LENGTH = 3
-        private const val INITIAL_SPEED = 150L // ms
-        private const val MIN_SPEED = 50L
-        private const val SPEED_DECREMENT = 5L
-    }
+    private lateinit var game: Game
+    private val paint = Paint()
+    private var cellSize = 0f
+    private var gridOffsetX = 0f
+    private var gridOffsetY = 0f
     
-    // Oyun durumu
-    private var isRunning = false
-    private var isPaused = false
-    private var isGameOver = false
-    
-    // Oyun alanı
-    private var gridWidth = 0
-    private var gridHeight = 0
-    private var cellSize = 0
-    
-    // Yılan
-    private val snake = LinkedList<Point>()
-    private var snakeDirection = Direction.RIGHT
-    
-    // Yem
-    private var food = Point()
-    
-    // Skor
-    private var score = 0
-    private var highScore = 0
-    
-    // Renkler
-    private val snakePaint = Paint().apply {
-        color = Color.GREEN
-        style = Paint.Style.FILL
-    }
-    
-    private val foodPaint = Paint().apply {
-        color = Color.RED
-        style = Paint.Style.FILL
-    }
-    
-    private val gridPaint = Paint().apply {
-        color = Color.DKGRAY
-        style = Paint.Style.STROKE
-        strokeWidth = 1f
-    }
-    
-    private val backgroundPaint = Paint().apply {
-        color = Color.BLACK
-        style = Paint.Style.FILL
-    }
-    
-    // Oyun döngüsü
-    private val handler = Handler(Looper.getMainLooper())
-    private var gameSpeed = INITIAL_SPEED
-    private val gameRunnable = object : Runnable {
-        override fun run() {
-            if (isRunning && !isPaused && !isGameOver) {
-                moveSnake()
-                checkCollisions()
-                invalidate()
-                handler.postDelayed(this, gameSpeed)
-            }
-        }
-    }
-    
-    // Listener
-    private var gameStateChangeListener: OnGameStateChangeListener? = null
-    
-    interface OnGameStateChangeListener {
-        fun onScoreChanged(score: Int)
-        fun onGameOver()
-        fun onGameStarted()
-    }
-    
-    fun setOnGameStateChangeListener(listener: OnGameStateChangeListener) {
-        this.gameStateChangeListener = listener
-    }
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
     
     init {
-        setOnTouchListener(this)
-        loadHighScore()
+        setupPaint()
+    }
+    
+    private fun setupPaint() {
+        paint.isAntiAlias = true
     }
     
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        initializeGame(w, h)
+    }
+    
+    private fun initializeGame(width: Int, height: Int) {
+        val gridSize = 20
+        val minDimension = minOf(width, height) - 32 // Account for margins
+        cellSize = minDimension / gridSize.toFloat()
         
-        gridWidth = GRID_SIZE
-        gridHeight = GRID_SIZE
-        cellSize = minOf(w, h) / GRID_SIZE
+        // Center the grid
+        gridOffsetX = (width - gridSize * cellSize) / 2
+        gridOffsetY = (height - gridSize * cellSize) / 2
         
-        initializeGame()
+        game = Game(gridSize, width, height)
+    }
+    
+    fun getGame(): Game = game
+    
+    fun update() {
+        if (game.gameState == GameState.RUNNING) {
+            game.update()
+            invalidate()
+        }
     }
     
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
-        // Arkaplan
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
+        drawGrid(canvas)
+        drawSnake(canvas)
+        drawFood(canvas)
+        drawGameState(canvas)
+    }
+    
+    private fun drawGrid(canvas: Canvas) {
+        val gridSize = game.getGridSize()
         
-        // Izgara çiz
-        for (i in 0..gridWidth) {
-            val x = i * cellSize.toFloat()
-            canvas.drawLine(x, 0f, x, height.toFloat(), gridPaint)
-        }
-        for (i in 0..gridHeight) {
-            val y = i * cellSize.toFloat()
-            canvas.drawLine(0f, y, width.toFloat(), y, gridPaint)
+        // Draw background
+        paint.color = Color.parseColor("#2E7D32")
+        canvas.drawRect(
+            gridOffsetX,
+            gridOffsetY,
+            gridOffsetX + gridSize * cellSize,
+            gridOffsetY + gridSize * cellSize,
+            paint
+        )
+        
+        // Draw grid lines
+        paint.color = Color.parseColor("#81C784")
+        paint.strokeWidth = 1f
+        
+        // Vertical lines
+        for (i in 0..gridSize) {
+            val x = gridOffsetX + i * cellSize
+            canvas.drawLine(
+                x, gridOffsetY,
+                x, gridOffsetY + gridSize * cellSize,
+                paint
+            )
         }
         
-        // Yılanı çiz
-        for (segment in snake) {
-            val left = segment.x * cellSize.toFloat()
-            val top = segment.y * cellSize.toFloat()
-            val right = left + cellSize
-            val bottom = top + cellSize
+        // Horizontal lines
+        for (i in 0..gridSize) {
+            val y = gridOffsetY + i * cellSize
+            canvas.drawLine(
+                gridOffsetX, y,
+                gridOffsetX + gridSize * cellSize, y,
+                paint
+            )
+        }
+    }
+    
+    private fun drawSnake(canvas: Canvas) {
+        val snake = game.getSnake()
+        val body = snake.getBody()
+        
+        // Draw snake body
+        paint.color = Color.parseColor("#FFEB3B")
+        for (point in body) {
+            val left = gridOffsetX + point.x * cellSize + 2
+            val top = gridOffsetY + point.y * cellSize + 2
+            val right = left + cellSize - 4
+            val bottom = top + cellSize - 4
             
-            canvas.drawRect(left, top, right, bottom, snakePaint)
-            
-            // Yılanın başını farklı renkte yap
-            if (segment == snake.first) {
-                val headPaint = Paint().apply {
-                    color = Color.YELLOW
-                    style = Paint.Style.FILL
+            canvas.drawRoundRect(
+                left, top, right, bottom,
+                cellSize / 4, cellSize / 4,
+                paint
+            )
+        }
+        
+        // Draw snake eyes on head
+        val head = snake.getHead()
+        paint.color = Color.BLACK
+        val headCenterX = gridOffsetX + head.x * cellSize + cellSize / 2
+        val headCenterY = gridOffsetY + head.y * cellSize + cellSize / 2
+        
+        val eyeRadius = cellSize / 8
+        val eyeOffset = cellSize / 4
+        
+        when (snake.direction) {
+            Direction.UP -> {
+                canvas.drawCircle(headCenterX - eyeOffset, headCenterY - eyeOffset, eyeRadius, paint)
+                canvas.drawCircle(headCenterX + eyeOffset, headCenterY - eyeOffset, eyeRadius, paint)
+            }
+            Direction.DOWN -> {
+                canvas.drawCircle(headCenterX - eyeOffset, headCenterY + eyeOffset, eyeRadius, paint)
+                canvas.drawCircle(headCenterX + eyeOffset, headCenterY + eyeOffset, eyeRadius, paint)
+            }
+            Direction.LEFT -> {
+                canvas.drawCircle(headCenterX - eyeOffset, headCenterY - eyeOffset, eyeRadius, paint)
+                canvas.drawCircle(headCenterX - eyeOffset, headCenterY + eyeOffset, eyeRadius, paint)
+            }
+            Direction.RIGHT -> {
+                canvas.drawCircle(headCenterX + eyeOffset, headCenterY - eyeOffset, eyeRadius, paint)
+                canvas.drawCircle(headCenterX + eyeOffset, headCenterY + eyeOffset, eyeRadius, paint)
+            }
+        }
+    }
+    
+    private fun drawFood(canvas: Canvas) {
+        val food = game.getFood() ?: return
+        
+        paint.color = Color.parseColor("#F44336")
+        val centerX = gridOffsetX + food.x * cellSize + cellSize / 2
+        val centerY = gridOffsetY + food.y * cellSize + cellSize / 2
+        val radius = cellSize / 2 - 4
+        
+        canvas.drawCircle(centerX, centerY, radius, paint)
+        
+        // Draw shine effect
+        paint.color = Color.parseColor("#FFCDD2")
+        canvas.drawCircle(centerX - radius/3, centerY - radius/3, radius/4, paint)
+    }
+    
+    private fun drawGameState(canvas: Canvas) {
+        when (game.gameState) {
+            GameState.GAME_OVER -> drawTextCentered(canvas, "Game Over!", Color.RED, 48f)
+            GameState.PAUSED -> drawTextCentered(canvas, "Paused", Color.YELLOW, 36f)
+            else -> {}
+        }
+    }
+    
+    private fun drawTextCentered(canvas: Canvas, text: String, color: Int, textSize: Float) {
+        paint.color = color
+        paint.textSize = textSize
+        paint.textAlign = Paint.Align.CENTER
+        paint.style = Paint.Style.FILL
+        
+        val x = width / 2f
+        val y = height / 2f
+        
+        // Draw text background
+        val textBounds = Rect()
+        paint.getTextBounds(text, 0, text.length, textBounds)
+        val padding = 20f
+        
+        paint.color = Color.parseColor("#80000000")
+        canvas.drawRoundRect(
+            x - textBounds.width() / 2f - padding,
+            y - textBounds.height() / 2f - padding,
+            x + textBounds.width() / 2f + padding,
+            y + textBounds.height() / 2f + padding,
+            16f, 16f, paint
+        )
+        
+        // Draw text
+        paint.color = color
+        canvas.drawText(text, x, y + textBounds.height() / 2f, paint)
+    }
+    
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                lastTouchX = event.x
+                lastTouchY = event.y
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                val deltaX = event.x - lastTouchX
+                val deltaY = event.y - lastTouchY
+                
+                // Determine swipe direction based on larger movement
+                if (abs(deltaX) > abs(deltaY)) {
+                    // Horizontal swipe
+                    if (deltaX > 0) {
+                        game.setDirection(Direction.RIGHT)
+                    } else {
+                        game.setDirection(Direction.LEFT)
+                    }
+                } else {
+                    // Vertical swipe
+                    if (deltaY > 0) {
+                        game.setDirection(Direction.DOWN)
+                    } else {
+                        game.setDirection(Direction.UP)
+                    }
                 }
-                canvas.drawRect(left + 2, top + 2, right - 2, bottom - 2, headPaint)
+                return true
             }
         }
-        
-        // Yemi çiz
-        val foodLeft = food.x * cellSize.toFloat()
-        val foodTop = food.y * cellSize.toFloat()
-        val foodRight = foodLeft + cellSize
-        val foodBottom = foodTop + cellSize
-        
-        canvas.drawRect(foodLeft, foodTop, foodRight, foodBottom, foodPaint)
-        
-        // Yem içine daire çiz
-        val foodCenterX = foodLeft + cellSize / 2
-        val foodCenterY = foodTop + cellSize / 2
-        val foodRadius = cellSize / 3f
-        
-        val innerFoodPaint = Paint().apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-        }
-        canvas.drawCircle(foodCenterX, foodCenterY, foodRadius, innerFoodPaint)
-    }
-    
-    override fun onTouch(v: View?, event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_DOWN && !isGameOver) {
-            val touchX = event.x
-            val touchY = event.y
-            
-            val centerX = width / 2
-            val centerY = height / 2
-            
-            val dx = touchX - centerX
-            val dy = touchY - centerY
-            
-            // Yatay hareket daha büyükse yatay yönde değiş
-            if (abs(dx) > abs(dy)) {
-                if (dx > 0 && snakeDirection != Direction.LEFT) {
-                    snakeDirection = Direction.RIGHT
-                } else if (dx < 0 && snakeDirection != Direction.RIGHT) {
-                    snakeDirection = Direction.LEFT
-                }
-            } else {
-                if (dy > 0 && snakeDirection != Direction.UP) {
-                    snakeDirection = Direction.DOWN
-                } else if (dy < 0 && snakeDirection != Direction.DOWN) {
-                    snakeDirection = Direction.UP
-                }
-            }
-            
-            return true
-        }
-        return false
-    }
-    
-    private fun initializeGame() {
-        snake.clear()
-        
-        // Yılanı ortada başlat
-        val startX = gridWidth / 2
-        val startY = gridHeight / 2
-        
-        for (i in 0 until INITIAL_SNAKE_LENGTH) {
-            snake.add(Point(startX - i, startY))
-        }
-        
-        generateFood()
-        score = 0
-        gameSpeed = INITIAL_SPEED
-        isGameOver = false
-    }
-    
-    private fun generateFood() {
-        val random = Random()
-        
-        do {
-            food.x = random.nextInt(gridWidth)
-            food.y = random.nextInt(gridHeight)
-        } while (snake.contains(food))
-    }
-    
-    private fun moveSnake() {
-        val head = snake.first
-        
-        val newHead = when (snakeDirection) {
-            Direction.UP -> Point(head.x, head.y - 1)
-            Direction.DOWN -> Point(head.x, head.y + 1)
-            Direction.LEFT -> Point(head.x - 1, head.y)
-            Direction.RIGHT -> Point(head.x + 1, head.y)
-        }
-        
-        // Duvardan geçiş (teleport)
-        if (newHead.x < 0) newHead.x = gridWidth - 1
-        if (newHead.x >= gridWidth) newHead.x = 0
-        if (newHead.y < 0) newHead.y = gridHeight - 1
-        if (newHead.y >= gridHeight) newHead.y = 0
-        
-        snake.addFirst(newHead)
-        
-        // Yem yenmediyse kuyruğu kes
-        if (newHead != food) {
-            snake.removeLast()
-        } else {
-            // Yem yendi
-            score += 10
-            gameStateChangeListener?.onScoreChanged(score)
-            
-            // Hızı artır
-            if (gameSpeed > MIN_SPEED) {
-                gameSpeed -= SPEED_DECREMENT
-            }
-            
-            generateFood()
-        }
-    }
-    
-    private fun checkCollisions() {
-        val head = snake.first
-        
-        // Kendine çarpma kontrolü (baş hariç)
-        for (i in 1 until snake.size) {
-            if (head == snake[i]) {
-                gameOver()
-                return
-            }
-        }
-    }
-    
-    private fun gameOver() {
-        isGameOver = true
-        isRunning = false
-        
-        if (score > highScore) {
-            highScore = score
-            saveHighScore()
-        }
-        
-        gameStateChangeListener?.onGameOver()
-    }
-    
-    // Oyun kontrol fonksiyonları
-    fun startGame() {
-        if (!isRunning) {
-            isRunning = true
-            isPaused = false
-            isGameOver = false
-            initializeGame()
-            gameStateChangeListener?.onGameStarted()
-            handler.post(gameRunnable)
-        }
-    }
-    
-    fun pauseGame() {
-        isPaused = true
-    }
-    
-    fun resumeGame() {
-        if (isRunning && isPaused) {
-            isPaused = false
-            handler.post(gameRunnable)
-        }
-    }
-    
-    fun restartGame() {
-        stopGame()
-        startGame()
-    }
-    
-    fun stopGame() {
-        isRunning = false
-        isPaused = false
-        handler.removeCallbacks(gameRunnable)
-    }
-    
-    fun isGameRunning(): Boolean = isRunning
-    
-    fun isGamePaused(): Boolean = isPaused
-    
-    fun getScore(): Int = score
-    
-    fun getHighScore(): Int = highScore
-    
-    // Yüksek skoru kaydet/yükle
-    private fun saveHighScore() {
-        val prefs = context.getSharedPreferences("snake_game", Context.MODE_PRIVATE)
-        prefs.edit().putInt("high_score", highScore).apply()
-    }
-    
-    private fun loadHighScore() {
-        val prefs = context.getSharedPreferences("snake_game", Context.MODE_PRIVATE)
-        highScore = prefs.getInt("high_score", 0)
-    }
-    
-    enum class Direction {
-        UP, DOWN, LEFT, RIGHT
+        return super.onTouchEvent(event)
     }
 }
