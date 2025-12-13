@@ -1,4 +1,4 @@
-name: DeepSeek Ultimate
+name: DeepSeek Ultimate - Smart Interactive
 
 on:
   workflow_dispatch:
@@ -6,6 +6,10 @@ on:
       task:
         description: 'Yapılacak görev'
         required: true
+        type: string
+      context_files:
+        description: 'İlgili dosyalar (virgülle, boşsa otomatik seçer)'
+        required: false
         type: string
   push:
     branches:
@@ -117,6 +121,74 @@ jobs:
             echo "complexity=low" >> $GITHUB_OUTPUT
           fi
 
+      - name: Smart Context Collector
+        id: context
+        run: |
+          echo "🔄 Akıllı context toplanıyor..."
+          
+          # Kullanıcı dosya belirtmişse onları kullan
+          USER_FILES="${{ github.event.inputs.context_files }}"
+          if [ -n "$USER_FILES" ]; then
+            echo "✅ Kullanıcı dosyaları kullanılıyor: $USER_FILES"
+            echo "files=$USER_FILES" >> $GITHUB_OUTPUT
+            echo "smart_mode=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # AKILLI DOSYA SEÇİMİ (GitHub Copilot stili)
+          echo "🤖 Akıllı dosya seçimi yapılıyor..."
+          SELECTED_FILES=""
+          
+          # 1. Proje yapı dosyaları (Kritik)
+          for file in "build.gradle" "build.gradle.kts" "settings.gradle" "package.json" "requirements.txt" "pyproject.toml" "Cargo.toml" "go.mod" "pom.xml"; do
+            if [ -f "$file" ]; then
+              SELECTED_FILES="$SELECTED_FILES,$file"
+              echo "➕ $file (yapı dosyası)"
+            fi
+          done
+          
+          # 2. Manifest/Config dosyaları
+          if [ -f "app/build.gradle" ]; then
+            SELECTED_FILES="$SELECTED_FILES,app/build.gradle"
+            echo "➕ app/build.gradle (manifest)"
+          fi
+          if [ -f "app/src/main/AndroidManifest.xml" ]; then
+            SELECTED_FILES="$SELECTED_FILES,app/src/main/AndroidManifest.xml"
+            echo "➕ AndroidManifest.xml"
+          fi
+          
+          # 3. README ve config
+          if [ -f "README.md" ]; then
+            SELECTED_FILES="$SELECTED_FILES,README.md"
+            echo "➕ README.md"
+          fi
+          if [ -f ".gitignore" ]; then
+            SELECTED_FILES="$SELECTED_FILES,.gitignore"
+            echo "➕ .gitignore"
+          fi
+          
+          # 4. Ana kod dosyaları (max 3 tane)
+          MAIN_FILES_COUNT=0
+          for file in "app/src/main/java/com/"*".kt" "app/src/main/kotlin/"*".kt" "src/App.js" "src/App.tsx" "src/main.py" "main.rs" "main.go"; do
+            if [ -f "$file" ] && [ $MAIN_FILES_COUNT -lt 3 ]; then
+              SELECTED_FILES="$SELECTED_FILES,$file"
+              MAIN_FILES_COUNT=$((MAIN_FILES_COUNT + 1))
+              echo "➕ $file (ana kod)"
+            fi
+          done
+          
+          # 5. Boşsa default
+          if [ -z "$SELECTED_FILES" ]; then
+            SELECTED_FILES="README.md"
+            echo "⚠️  Dosya bulunamadı, default kullanılıyor"
+          fi
+          
+          # Temizle ve max 8 dosya
+          SELECTED_FILES=$(echo "$SELECTED_FILES" | sed 's/^,//' | cut -d',' -f1-8)
+          echo "✅ Seçilen dosyalar: $SELECTED_FILES"
+          echo "files=$SELECTED_FILES" >> $GITHUB_OUTPUT
+          echo "smart_mode=true" >> $GITHUB_OUTPUT
+
       - name: Java Kurulumu
         if: steps.detect.outputs.type == 'android'
         uses: actions/setup-java@v4
@@ -182,9 +254,7 @@ jobs:
           base = (os.environ.get('BASE_URL') or "https://api.deepseek.com").rstrip('/')
           model = os.environ.get('MODEL') or 'deepseek-chat'
           
-          # ÖNERİLEN İYİLEŞTİRME: Sadece bağlantıyı değil, modelin erişilebilirliğini de kontrol et.
           try:
-              # 1. API'nin genel olarak erişilebilir olduğunu kontrol et
               url = base + "/v1/models"
               print(f"API bağlantısı kontrol ediliyor: {url}")
               r = requests.get(url, headers={'Authorization': f'Bearer {key}'}, timeout=15)
@@ -197,22 +267,19 @@ jobs:
               available_models = [m['id'] for m in models_data.get('data', [])]
               print(f"Mevcut modeller: {', '.join(available_models)}")
               
-              # 2. Seçilen modelin listede olup olmadığını kontrol et
               if model not in available_models:
                   print(f"UYARI: Seçilen model '{model}' API'nin listesinde görünmüyor.")
                   print("Anahtarınızın bu modeli kullanma izni olmayabilir veya model adı değişmiş olabilir.")
-                  # Bu bir uyarı, işlemi durdurmuyor. Kullanıcıyı bilgilendiriyor.
           except requests.exceptions.RequestException as e:
               print(f"API bağlantı hatası: {e}")
               sys.exit(3)
           except Exception as e:
               print(f"Model listesi kontrolü sırasında beklenmedik hata: {e}")
-              # Beklenmedik hatalarda işleme devam etmeyi seçebiliriz.
           
           print("DEEPSEEK API anahtar doğrulaması ve model kontrolü tamamlandı.")
           PY
 
-      - name: DeepSeek Kodlama Motoru
+      - name: DeepSeek Smart Interactive Engine
         id: deepseek
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -221,6 +288,7 @@ jobs:
           BASE_URL: ${{ steps.model_selector.outputs.base_url }}
           PROJECT_TYPE: ${{ steps.detect.outputs.type }}
           PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
+          CONTEXT_FILES: ${{ steps.context.outputs.files }}
         run: |
           python3 << 'PYTHON_EOF'
           import os
@@ -253,6 +321,7 @@ jobs:
           USER_TASK = os.environ.get('USER_TASK') or 'Proje optimize et'
           PROJECT_TYPE = os.environ.get('PROJECT_TYPE', '')
           PROJECT_DETAILS = os.environ.get('PROJECT_DETAILS', '')
+          CONTEXT_FILES = os.environ.get('CONTEXT_FILES', '')
 
           def sanitize_key(k: str) -> str:
               if k is None:
@@ -272,48 +341,42 @@ jobs:
               write_output("error", msg)
               sys.exit(1)
 
-          fileList = []
+          # AKILLI DOSYA OKUMA (GitHub Copilot stili)
           repoContext = ""
-          ignoreDirs = {'.git', 'node_modules', 'build', 'dist', '.gradle', 'venv', '__pycache__', 'target', '.idea', '.vscode', 'bin', 'obj', 'out', 'vendor'}
-          codeExtensions = {
-              '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs',
-              '.py', '.pyw', '.pyi', '.java', '.kt', '.kts',
-              '.scala', '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hxx',
-              '.cs', '.fs', '.vb', '.go', '.rs', '.php', '.rb', '.pl',
-              '.swift', '.sh', '.ps1', '.yaml', '.yml', '.xml', '.json',
-              '.gradle', '.properties'
-          }
+          fileList = []
+          
+          if CONTEXT_FILES:
+              files = [f.strip() for f in CONTEXT_FILES.split(',') if f.strip()]
+              for file_path in files:
+                  try:
+                      path = Path(file_path)
+                      if path.exists() and path.is_file():
+                          content = path.read_text(encoding='utf-8')
+                          # Dosya boyutunu sınırla
+                          if len(content) > 10000:
+                              content = content[:10000] + "\n... [kesildi, devamı var]"
+                          repoContext += f"\n=== {file_path} ===\n{content}\n"
+                          fileList.append(file_path)
+                          print(f"✓ Okundu: {file_path} ({len(content)} karakter)")
+                  except Exception as e:
+                      print(f"⚠️  Okunamadı: {file_path} - {e}")
+          
+          print(f"Toplam {len(fileList)} dosya okundu (~{len(repoContext)} karakter)")
 
-          def scanDirectory(directory, depth=0):
-              global fileList, repoContext
-              if depth > 10 or not Path(directory).exists():
-                  return
-              try:
-                  for item in Path(directory).iterdir():
-                      if item.name.startswith('.') and item.name != '.gitignore':
-                          continue
-                      if item.is_dir():
-                          if item.name not in ignoreDirs:
-                              scanDirectory(item, depth + 1)
-                      elif item.is_file():
-                          if item.suffix.lower() in codeExtensions or item.name in ['Dockerfile', 'Makefile', 'CMakeLists.txt']:
-                              try:
-                                  content = item.read_text(encoding='utf-8')
-                                  if len(content) < 100000:
-                                      relPath = str(item.relative_to('.'))
-                                      repoContext += f"\n=== {relPath} ===\n{content}\n"
-                                      fileList.append(relPath)
-                              except Exception:
-                                  pass
-              except Exception:
-                  pass
+          # INTERAKTİF SMART PROMPT
+          systemPrompt = f"""Sen DeepSeek V3.2, akıllı ve interaktif bir kod asistanısın.
 
-          scanDirectory('.')
-          print(f"Taranan dosya: {len(fileList)}")
+          ÇALIŞMA PRENSİBİN (GitHub Copilot gibi):
+          1. ÖNCE mevcut context'i analiz et (sana sınırlı dosya gösterildi)
+          2. EKSİK BİLGİ VARSA SOR:
+             - "Hangi teknoloji/versiyon?"
+             - "Hangi kütüphaneler?"
+             - "Tasarım tercihlerin?"
+             - "Özel gereksinimler?"
+          3. NET DEĞİLSE SOR, ASLA VARSAYIM YAPMA!
+          4. Eksik yoksa TAM ve ÇALIŞAN kod yaz.
 
-          systemPrompt = f"""Sen DeepSeek V3.2, dünya standardında profesyonel yazılım mühendisisin.
-
-          PROJE BILGISI:
+          PROJE BİLGİSİ:
           - Tip: {PROJECT_TYPE}
           - Detaylar: {PROJECT_DETAILS}
           - Model: {MODEL}
@@ -323,38 +386,34 @@ jobs:
 
           DOSYA YAZMA FORMATI:
           ---FILE: dosya/yolu/isim.uzanti---
-          [dosya içeriği]
+          [tam çalışan kod]
           ---END---
 
-          DOSYA SILME FORMATI:
-          ---DELETE: dosya/yolu/isim.uzanti---
+          DOSYA SILME:
+          ---DELETE: dosya/yolu---
           ---END---
 
-          DİZİN SILME FORMATI:
-          ---DELETEDIR: klasor/yolu---
+          SORU FORMATI (Eksik bilgi varsa):
+          ---QUESTION---
+          [Net ve spesifik soru]
           ---END---
 
           KURALLAR:
-          ✅ Tam çalışan, production-ready kod yaz
+          ✅ Eksik bilgi varsa SOR
+          ✅ Tam çalışan kod yaz
           ✅ Hata yönetimi ekle
-          ✅ Türkçe yorum ekle
           ✅ Best practices uygula
-          ✅ Test kodunu dahil et
-          ❌ Markdown code block kullanma (backtick yok)
-          ❌ Eksik kod yazma
-          ❌ Placeholder bırakma
+          ❌ Eksik/yarım kod YAZMA
+          ❌ Tahmin yapıp devam etme
 
-          MEVCUT DOSYALAR: {', '.join(fileList[:20]) if fileList else 'Yok'}"""
+          MEVCUT DOSYALAR: {', '.join(fileList) if fileList else 'Yeni proje'}
 
-          def post_chat(api_base, api_key, model, messages, max_tokens=8192, temperature=0.7, timeout=60):
-              # KRİTİK DÜZELTME: 'v3.2_speciale' gibi özel bir yol kullanılıyorsa, '/v1' ekini path'e göre akıllıca ekle.
-              # Örneğin: 'https://api.deepseek.com/v3.2_speciale_expires_on_20251215' -> '/chat/completions' direkt eklenir.
-              # Standart 'https://api.deepseek.com' ise -> '/v1/chat/completions' eklenir.
+          ŞİMDİ: Analiz et ve gerekiyorsa SOR, yoksa KOD YAZ:"""
+
+          def post_chat(api_base, api_key, model, messages, max_tokens=12000, temperature=0.7, timeout=60):
               if "/v3.2_speciale" in api_base:
-                  # Özel endpoint'in kendi yol yapısı olduğunu varsayalım, '/v1' eklemiyoruz.
                   url = f"{api_base}/chat/completions"
               else:
-                  # Standart endpoint için OpenAI uyumlu yolu kullanıyoruz.
                   url = f"{api_base}/v1/chat/completions"
               
               headers = {
@@ -395,13 +454,13 @@ jobs:
 
           messages = [
               {"role":"system","content": systemPrompt},
-              {"role":"user","content": repoContext or "Boş proje - sıfırdan başla"}
+              {"role":"user","content": repoContext or "Yeni proje oluşturulacak. Gerekiyorsa detay sor."}
           ]
 
           for attempt in range(1, max_retries + 1):
               try:
                   resp = post_chat(api_base, api_key, MODEL, messages,
-                                   max_tokens=8192,
+                                   max_tokens=12000,
                                    temperature=0.5 if MODEL == 'deepseek-reasoner' else 0.7)
                   print("HTTP status:", resp.status_code)
                   if resp.status_code == 401:
@@ -411,7 +470,7 @@ jobs:
                       write_output("error", msg)
                       sys.exit(1)
                   if resp.status_code == 404:
-                      msg = f"Not Found (404): Endpoint bulunamadı. API URL'si veya yol yapısı yanlış olabilir: {resp.url}"
+                      msg = f"Not Found (404): Endpoint bulunamadı: {resp.url}"
                       print(msg)
                       write_output("success","false")
                       write_output("error", msg)
@@ -419,15 +478,8 @@ jobs:
                   if not resp.ok:
                       raise Exception(f"HTTP {resp.status_code}: {resp.text[:1000]}")
                   data = resp.json()
-                  # EK GÜVENLİK: Yanıtın kesilip kesilmediğini kontrol et (finish_reason: "length")
-                  choices = data.get('choices', [{}])
-                  finish_reason = choices[0].get('finish_reason', '') if choices else ''
-                  if finish_reason == 'length':
-                      warning_msg = "UYARI: Modelin yanıtı max_tokens sınırından dolayı kesildi (truncated). Bu, dosya işleme komutlarını bozabilir. max_tokens değerini artırmayı veya prompt'u kısaltmayı düşünün."
-                      print(warning_msg)
-                      write_output("warning", warning_msg)
                   aiResponse = parse_response(data)
-                  print("AI yanıtı alındı")
+                  print("✅ AI yanıtı alındı")
                   break
               except Exception as e:
                   last_exc = e
@@ -447,35 +499,89 @@ jobs:
               write_output("error", str(last_exc))
               sys.exit(1)
 
-          operations = []
-          for m in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
-              dirPath = m.group(1).strip()
-              if Path(dirPath).exists() and Path(dirPath).is_dir():
-                  import shutil
-                  shutil.rmtree(dirPath)
-                  operations.append(f"Klasör silindi: {dirPath}")
-          for m in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
-              filePath = m.group(1).strip()
-              if Path(filePath).exists():
-                  Path(filePath).unlink()
-                  operations.append(f"Dosya silindi: {filePath}")
-          for m in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
-              filePath = m.group(1).strip()
-              content = m.group(2).rstrip()
-              dirPath = Path(filePath).parent
-              if dirPath != Path('.'):
-                  dirPath.mkdir(parents=True, exist_ok=True)
-              Path(filePath).write_text(content, encoding='utf-8')
-              operations.append(f"Yazıldı: {filePath}")
+          # SORU VAR MI KONTROL ET (Interaktif mod)
+          question_match = re.search(r'---QUESTION---\s*(.+?)\s*---END---', aiResponse, re.DOTALL)
+          if question_match:
+              question = question_match.group(1).strip()
+              print(f"❓ AI soru sordu: {question[:100]}...")
+              write_output("has_question", "true")
+              write_output("question", question)
+              write_output("response", aiResponse)
+              write_output("success", "true")  # Başarılı ama soru var
+          else:
+              write_output("has_question", "false")
+              
+              # DOSYA İŞLEMLERİ
+              operations = []
+              for m in re.finditer(r'---DELETEDIR:\s*(.+?)\s*---', aiResponse):
+                  dirPath = m.group(1).strip()
+                  if Path(dirPath).exists() and Path(dirPath).is_dir():
+                      import shutil
+                      shutil.rmtree(dirPath)
+                      operations.append(f"Klasör silindi: {dirPath}")
+              for m in re.finditer(r'---DELETE:\s*(.+?)\s*---', aiResponse):
+                  filePath = m.group(1).strip()
+                  if Path(filePath).exists():
+                      Path(filePath).unlink()
+                      operations.append(f"Dosya silindi: {filePath}")
+              for m in re.finditer(r'---FILE:\s*(.+?)\s*---\n([\s\S]*?)---END---', aiResponse):
+                  filePath = m.group(1).strip()
+                  content = m.group(2).rstrip()
+                  dirPath = Path(filePath).parent
+                  if dirPath != Path('.'):
+                      dirPath.mkdir(parents=True, exist_ok=True)
+                  Path(filePath).write_text(content, encoding='utf-8')
+                  operations.append(f"Yazıldı: {filePath}")
 
-          write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
-          write_output("count", str(len(operations)))
-          write_output("success", "true")
+              write_output("operations", '\n'.join(operations) if operations else 'İşlem yapılmadı')
+              write_output("count", str(len(operations)))
+              write_output("success", "true")
+          
           PYTHON_EOF
+
+      - name: Interactive Question Handler
+        if: steps.deepseek.outputs.has_question == 'true'
+        run: |
+          echo "## 🤖 DEEPSEEK SORU SORDU"
+          echo ""
+          echo "**Görev:** ${{ github.event.inputs.task }}"
+          echo ""
+          echo "### ❓ SORU:"
+          echo "${{ steps.deepseek.outputs.question }}"
+          echo ""
+          echo "### 📋 MEVCUT DOSYALAR:"
+          echo "${{ steps.context.outputs.files }}"
+          echo ""
+          echo "### 🚀 SONRAKİ ADIMLAR:"
+          echo "1. **Yanıtını hazırla:** AI'nın sorusunu cevapla"
+          echo "2. **Dosya ekle:** Eksik dosyaları 'context_files' alanına ekle"
+          echo "3. **Yeniden çalıştır:** Workflow'u tekrar başlat"
+          echo ""
+          echo "### 💡 ÖRNEK:"
+          echo "```yaml"
+          echo "task: \"${{ github.event.inputs.task }}\""
+          echo "context_files: \"${{ steps.context.outputs.files }},app/src/main/AndroidManifest.xml,build.gradle\""
+          echo "```"
+          echo ""
+          echo "---"
+          echo "*Interaktif mod: AI öğreniyor, daha iyi kod yazıyor!*"
+          
+          # Soruyu issue olarak aç (opsiyonel)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.task }}" ]; then
+            echo "## AI Sordu: ${{ github.event.inputs.task }}" > ai_question.md
+            echo "" >> ai_question.md
+            echo "**Soru:** ${{ steps.deepseek.outputs.question }}" >> ai_question.md
+            echo "" >> ai_question.md
+            echo "**Mevcut Dosyalar:** ${{ steps.context.outputs.files }}" >> ai_question.md
+            echo "" >> ai_question.md
+            echo "**Yanıt vermek için:**" >> ai_question.md
+            echo "1. Eksik dosyaları ekle: \`${{ steps.context.outputs.files }},yeni_dosya.kt\`" >> ai_question.md
+            echo "2. Workflow'u yeniden çalıştır" >> ai_question.md
+          fi
 
       - name: Derleme
         id: build
-        if: steps.deepseek.outputs.success == 'true'
+        if: steps.deepseek.outputs.success == 'true' && steps.deepseek.outputs.has_question != 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -485,7 +591,7 @@ jobs:
             android)
               if [ -f "gradlew" ]; then
                 chmod +x gradlew
-                ./gradlew assembleDebug -Pkotlin.suppressVersionCompatibilityCheck=true --no-daemon && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Derleme hatası" >> $GITHUB_ENV
+                ./gradlew assembleDebug -Pandroid.suppressKotlinVersionCompatibilityCheck=true --no-daemon && echo "BUILD_STATUS=Başarılı" >> $GITHUB_ENV || echo "BUILD_STATUS=Derleme hatası" >> $GITHUB_ENV
               else
                 echo "BUILD_STATUS=Gradle wrapper bulunamadı" >> $GITHUB_ENV
               fi
@@ -516,7 +622,7 @@ jobs:
           esac
 
       - name: Değişiklikleri Kaydet
-        if: steps.deepseek.outputs.success == 'true'
+        if: steps.deepseek.outputs.success == 'true' && steps.deepseek.outputs.has_question != 'true'
         run: |
           set -euo pipefail
           echo "Değişiklikler kontrol ediliyor..."
@@ -550,15 +656,19 @@ jobs:
           COUNT: ${{ steps.deepseek.outputs.count }}
           SUCCESS: ${{ steps.deepseek.outputs.success }}
           ERROR: ${{ steps.deepseek.outputs.error }}
-          WARNING: ${{ steps.deepseek.outputs.warning }}
+          HAS_QUESTION: ${{ steps.deepseek.outputs.has_question }}
+          QUESTION: ${{ steps.deepseek.outputs.question }}
           BUILD_STATUS: ${{ env.BUILD_STATUS }}
           PROJECT_TYPE: ${{ steps.detect.outputs.type }}
           PROJECT_DETAILS: ${{ steps.detect.outputs.details }}
           MODEL: ${{ steps.model_selector.outputs.model }}
           COMPLEXITY: ${{ steps.model_selector.outputs.complexity }}
+          CONTEXT_FILES: ${{ steps.context.outputs.files }}
+          SMART_MODE: ${{ steps.context.outputs.smart_mode }}
         with:
           script: |
             const success = process.env.SUCCESS === 'true';
+            const hasQuestion = process.env.HAS_QUESTION === 'true';
             const operations = process.env.OPERATIONS || 'İşlem yapılmadı';
             const count = process.env.COUNT || '0';
             const buildStatus = process.env.BUILD_STATUS || 'Derleme yapılmadı';
@@ -566,10 +676,16 @@ jobs:
             const projectDetails = process.env.PROJECT_DETAILS || 'Genel';
             const model = process.env.MODEL || 'deepseek-chat';
             const complexity = process.env.COMPLEXITY || 'low';
-            const warning = process.env.WARNING || '';
+            const contextFiles = process.env.CONTEXT_FILES || 'Otomatik seçildi';
+            const smartMode = process.env.SMART_MODE === 'true';
+            const question = process.env.QUESTION || '';
             
-            const statusEmoji = success ? '✅ BAŞARILI' : '❌ HATA';
-            let report = '## DeepSeek Ultimate Raporu\n\n';
+            let statusEmoji = '🔄';
+            if (hasQuestion) statusEmoji = '❓ BEKLEYEN SORU';
+            else if (success) statusEmoji = '✅ BAŞARILI';
+            else statusEmoji = '❌ HATA';
+            
+            let report = '## 🚀 DeepSeek Ultimate - Smart Interactive\n\n';
             
             report += '| Özellik | Değer |\n';
             report += '|---------|-------|\n';
@@ -577,22 +693,30 @@ jobs:
             report += '| **Model** | ' + model + ' |\n';
             report += '| **Kompleksite** | ' + complexity + ' |\n';
             report += '| **Proje Tipi** | ' + projectDetails + ' |\n';
+            report += '| **Context Dosyaları** | ' + contextFiles + ' |\n';
+            report += '| **Akıllı Mod** | ' + (smartMode ? '✅ AÇIK' : '🔧 MANUEL') + ' |\n';
             report += '| **İşlem Sayısı** | ' + count + ' |\n';
             report += '| **Derleme** | ' + buildStatus + ' |\n\n';
             
-            if (warning) {
-              report += '### ⚠️ Uyarı\n' + warning + '\n\n';
+            if (hasQuestion) {
+              report += '### ❓ INTERAKTİF SORU\n';
+              report += question + '\n\n';
+              report += '**📋 Sonraki Adımlar:**\n';
+              report += '1. Bu soruyu yanıtla\n';
+              report += '2. Eksik dosyaları `context_files` alanına ekle\n';
+              report += '3. Workflow\'u yeniden çalıştır\n\n';
+              report += '**💡 Örnek:**\n```yaml\ncontext_files: "' + contextFiles + ',ek_dosya.kt"\n```\n\n';
+            } else if (operations && operations !== 'İşlem yapılmadı') {
+              report += '### ✅ YAPILAN İŞLEMLER\n' + operations + '\n\n';
             }
             
-            if (operations && operations !== 'İşlem yapılmadı') {
-              report += '### Yapılan İşlemler\n' + operations + '\n\n';
+            if (!success && process.env.ERROR && !hasQuestion) {
+              report += '### ❌ HATA DETAYI\n' + process.env.ERROR + '\n\n';
             }
             
-            if (!success && process.env.ERROR) {
-              report += '### Hata Detayı\n' + process.env.ERROR + '\n\n';
-            }
-            
-            report += '\n---\n*DeepSeek Ultimate v3.2-Güncel tarafından oluşturuldu*';
+            report += '---\n';
+            report += '**🎯 Token Optimizasyonu:** ' + (smartMode ? 'Akıllı dosya seçimi (~3-5K token)' : 'Manuel seçim') + '\n';
+            report += '*GitHub Copilot stili interaktif kodlama*';
             
             try {
               if (context.issue && context.issue.number) {
