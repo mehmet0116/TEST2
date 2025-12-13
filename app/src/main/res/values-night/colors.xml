@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Karanlık tema için renkler -->
+    <color name="background_beige">#FF121212</color>
+    <color name="snake_green">#FF66BB6A</color>
+    <color name="food_red">#FFEF5350</color>
+    <color name="grid_line">#33FFFFFF</color>
+    <color name="text_color">#FFFFFFFF</color>
+    <color name="button_background">#FF66BB6A</color>
+    <color name="button_text">#FF000000</color>
+</resources>
